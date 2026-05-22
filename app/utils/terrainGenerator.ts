@@ -33,232 +33,117 @@ const dangerLevelsWeighted = [
 export const getDangerLevel = () => dangerLevelsWeighted[randomRoll(dangerLevelsWeighted.length)] ?? DangerLevel.Safe
 
 // Terrain
-import { createNoise2D } from 'simplex-noise'
-import type { CustomHex } from '~/classes/CustomHex'
 
 export enum TerrainTypes {
     Sea = 0,
     Swamp = 1,
-    Desert = 2,
+    Blank = 2,
     Grass = 3,
-    Forest = 4,
-    Hills = 5,
-    Mountains = 6
+    Desert = 4,
+    Wetlands = 5
 }
 
-export enum TerrainColors {
-    Sea = '#417C9B',         // Deep blue water
-    Swamp = '#76a390ff',       // Muted swamp green
-    Desert = '#dad5a9ff',      // Sandy beige
-    Grass = '#86BD8F',       // Light green
-    Forest = '#77ad80ff',      // Dark green
-    Hills = '#7BA276',       // Brown/tan
-    Mountains = '#b2bfc6ff'  // Gray
+interface VariantPack {
+    pack: 'hexes' | 'hexes2'
+    folder: string
+    files: string[]
 }
 
-// Terrain variant images
-export const TerrainVariants = {
-    Sea: ['sea1.png'],
-    Swamp: ['deadlands1.png', 'deadlands2.png'],
-    Desert: ['desert1.png', 'desert2.png', 'desert3.png', 'desert4.png', 'desert6.png', 'desert7.png'],
-    Grass: ['grass1.png', 'grass2.png'],
-    Forest: ['forest1.png', 'forest2.png', 'forest3.png', 'forest4.png'],
-    Hills: ['hills1.png', 'hills2.png', 'hills3.png', 'hills4.png'],
-    Mountains: ['mountain1.png', 'mountain2.png']
+export const TerrainVariants: Record<keyof typeof TerrainTypes, VariantPack> = {
+    Sea:      { pack: 'hexes2', folder: 'sea',       files: ['sea1.png'] },
+    Swamp:    { pack: 'hexes2', folder: 'deadlands', files: ['deadlands1.png', 'deadlands2.png'] },
+    Blank:    { pack: 'hexes2', folder: 'blank',     files: ['blank1.png'] },
+    Grass:    { pack: 'hexes2', folder: 'grass',     files: ['grass1.png', 'grass2.png', 'grass3.png'] },
+    Desert:   { pack: 'hexes2', folder: 'desert',    files: ['desert1.png', 'desert2.png', 'desert3.png', 'desert4.png', 'desert5.png', 'desert6.png', 'desert7.png'] },
+    Wetlands: { pack: 'hexes2', folder: 'wetlands',  files: ['wetands1.png', 'wetlands2.png', 'wetlands3.png', 'wetlands4.png', 'wetlands5.png', 'wetlands6.png'] }
+}
+
+const FALLBACK_TERRAIN: keyof typeof TerrainTypes = 'Blank'
+
+function resolveVariantPack(terrainType: TerrainTypes): VariantPack {
+    const key = TerrainTypes[terrainType] as keyof typeof TerrainVariants | undefined
+    if (key && TerrainVariants[key]) return TerrainVariants[key]
+    return TerrainVariants[FALLBACK_TERRAIN]
+}
+
+const variantUrl = (v: VariantPack, index: number): string => {
+    const safeIndex = ((index % v.files.length) + v.files.length) % v.files.length
+    const file = v.files[safeIndex]
+    return v.folder ? `/media/${v.pack}/${encodeURIComponent(v.folder)}/${file}` : `/media/${v.pack}/${file}`
 }
 
 /**
  * Get a random terrain variant image path for a given terrain type
  */
 export const getRandomTerrainVariant = (terrainType: TerrainTypes): string => {
-    const terrainKey = TerrainTypes[terrainType] as keyof typeof TerrainVariants
-    const variants = TerrainVariants[terrainKey]
-    const randomIndex = randomRoll(variants.length)
-    return `/media/hexes/${variants[randomIndex]}`
+    const v = resolveVariantPack(terrainType)
+    return variantUrl(v, randomRoll(v.files.length))
 }
 
 /**
  * Get terrain variant by specific index (for deterministic selection)
  */
 export const getTerrainVariantByIndex = (terrainType: TerrainTypes, variantIndex: number): string => {
-    const terrainKey = TerrainTypes[terrainType] as keyof typeof TerrainVariants
-    const variants = TerrainVariants[terrainKey]
-    const index = variantIndex % variants.length // Wrap around if index exceeds variants
-    return `/media/hexes/${variants[index]}`
+    return variantUrl(resolveVariantPack(terrainType), variantIndex)
 }
 
-export interface TerrainDistribution {
-    sea: number        // 0-100 (percentage)
-    swamp: number      // 0-100
-    desert: number     // 0-100
-    grass: number      // 0-100
-    forest: number     // 0-100
-    hills: number      // 0-100
-    mountains: number  // 0-100
+// ----------------------------------------------------------------------------
+// Overlays: stackable on top of base terrain (one per category per hex).
+// POIs are placed free-form (not snapped to a hex).
+// ----------------------------------------------------------------------------
+
+export type OverlayCategory = 'river' | 'path' | 'poi'
+
+export const OverlayCategories: readonly OverlayCategory[] = ['river', 'path', 'poi']
+
+export const OverlayCategoryLabels: Record<OverlayCategory, string> = {
+    river: 'River',
+    path: 'Path',
+    poi: 'POI',
 }
 
-export const DEFAULT_TERRAIN_DISTRIBUTION: TerrainDistribution = {
-    sea: 30,
-    swamp: 10,
-    desert: 10,
-    grass: 20,
-    forest: 15,
-    hills: 10,
-    mountains: 5
+export type OverlayVariantEntry = string | { folder: string; file: string }
+
+export const OverlayVariants: Record<OverlayCategory, { folder: string; files: OverlayVariantEntry[] }> = {
+    river: { folder: 'rivers',             files: ['river01.png','river02.png','river03.png','river04.png','river05.png','river06.png','river07.png','river08.png','river09.png','river10.png','river11.png','river12.png','river13.png','river14.png','river15.png'] },
+    path:  { folder: 'paths',              files: ['r1.png','r2.png','r3.png','r4.png','r5.png','r6.png','r7.png','r8.png','r9.png','r10.png','r11.png','r12.png','r13.png','r14.png','r15.png'] },
+    poi:   { folder: 'points of interest', files: [
+        's01.png','s02.png','s03.png','s04.png','s05.png','s06.png','s07.png','s08.png','s09.png','s10.png','s11.png','s12.png','s13.png','s14.png','s15.png','s17.png','s18.png',
+        { folder: 'sea', file: 'sea2.png' },
+        { folder: 'sea', file: 'sea6.png' },
+        { folder: 'hills', file: 'hills1.png' },
+        { folder: 'hills', file: 'hills2.png' },
+        { folder: 'hills', file: 'hills3.png' },
+        { folder: 'hills', file: 'hills4.png' },
+        { folder: 'hills', file: 'hills5.png' },
+        { folder: 'hills', file: 'hills6.png' },
+        { folder: 'mountains', file: 'mountain1.png' },
+        { folder: 'mountains', file: 'mountain2.png' },
+        { folder: 'mountains', file: 'mountain3.png' },
+        { folder: 'mountains', file: 'mountain4.png' },
+        { folder: 'mountains', file: 'mountain5.png' },
+        { folder: 'forest', file: 'forest1.png' },
+        { folder: 'forest', file: 'forest2.png' },
+        { folder: 'forest', file: 'forest3.png' },
+        { folder: 'forest', file: 'forest4.png' },
+        { folder: 'forest', file: 'forest5.png' },
+        { folder: 'fields', file: 'field1.png' },
+        { folder: 'fields', file: 'field2.png' },
+        { folder: 'fields', file: 'field3.png' },
+        { folder: 'fields', file: 'field4.png' },
+    ] },
 }
 
-export interface NoiseConfig {
-    seed?: string
-    scale: number           // Controls "zoom level" of noise (0.01 = zoomed out, 0.1 = zoomed in)
-    octaves: number         // Number of noise layers (more = more detail)
-    persistence: number     // How much each octave contributes (0-1)
-    lacunarity: number      // How much detail is added per octave (usually 2)
-    redistribution: number  // Exponent to redistribute height values (1 = linear, 2+ = more land, 0.5 = more water)
-    terrainDistribution: TerrainDistribution
-}
+export const overlayVariantFilename = (entry: OverlayVariantEntry): string =>
+    typeof entry === 'string' ? entry : entry.file
 
-export const DEFAULT_NOISE_CONFIG: NoiseConfig = {
-    scale: 0.1,
-    octaves: 2,
-    persistence: 0.5,
-    lacunarity: 2,
-    redistribution: 1.0,
-    terrainDistribution: DEFAULT_TERRAIN_DISTRIBUTION
-}
-
-export class TerrainNoiseGenerator {
-    private noise2D: ReturnType<typeof createNoise2D>
-    private config: NoiseConfig
-    private heightThresholds: number[] = []
-
-    constructor(config: Partial<NoiseConfig> = {}) {
-        this.config = { ...DEFAULT_NOISE_CONFIG, ...config }
-
-        // Use seed if provided, otherwise random
-        const seed = this.config.seed ? this.hashString(this.config.seed) : Math.random()
-        this.noise2D = createNoise2D(() => seed)
-
-        // Calculate thresholds based on distribution
-        this.calculateThresholds()
-    }
-
-    private hashString(str: string): number {
-        let hash = 0
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i)
-            hash = ((hash << 5) - hash) + char
-            hash = hash & hash
-        }
-        return Math.abs(hash) / 2147483647 // Normalize to 0-1
-    }
-
-    /**
-     * Calculate height thresholds based on terrain distribution percentages
-     */
-    private calculateThresholds() {
-        const dist = this.config.terrainDistribution
-
-        // Normalize percentages to sum to 100
-        const total = dist.sea + dist.swamp + dist.desert + dist.grass +
-                     dist.forest + dist.hills + dist.mountains
-
-        const normalized = {
-            sea: dist.sea / total,
-            swamp: dist.swamp / total,
-            desert: dist.desert / total,
-            grass: dist.grass / total,
-            forest: dist.forest / total,
-            hills: dist.hills / total,
-            mountains: dist.mountains / total
-        }
-
-        // Calculate cumulative thresholds
-        this.heightThresholds = [
-            normalized.sea,
-            normalized.sea + normalized.swamp,
-            normalized.sea + normalized.swamp + normalized.desert,
-            normalized.sea + normalized.swamp + normalized.desert + normalized.grass,
-            normalized.sea + normalized.swamp + normalized.desert + normalized.grass + normalized.forest,
-            normalized.sea + normalized.swamp + normalized.desert + normalized.grass + normalized.forest + normalized.hills,
-            1.0 // mountains
-        ]
-    }
-
-    /**
-     * Generate layered octave noise for a position
-     */
-    private getNoiseValue(x: number, y: number): number {
-        let total = 0
-        let frequency = 1
-        let amplitude = 1
-        let maxValue = 0
-
-        for (let i = 0; i < this.config.octaves; i++) {
-            const sampleX = x * this.config.scale * frequency
-            const sampleY = y * this.config.scale * frequency
-
-            // simplex-noise returns values between -1 and 1
-            const noiseValue = this.noise2D(sampleX, sampleY)
-
-            total += noiseValue * amplitude
-            maxValue += amplitude
-
-            amplitude *= this.config.persistence
-            frequency *= this.config.lacunarity
-        }
-
-        // Normalize to 0-1
-        const normalized = (total / maxValue + 1) / 2
-
-        // Apply redistribution curve
-        return Math.pow(normalized, this.config.redistribution)
-    }
-
-    /**
-     * Map height value (0-1) to terrain type based on dynamic thresholds
-     */
-    private heightToTerrain(height: number): TerrainTypes {
-        if (height < this.heightThresholds[0]) return TerrainTypes.Sea
-        if (height < this.heightThresholds[1]) return TerrainTypes.Swamp
-        if (height < this.heightThresholds[2]) return TerrainTypes.Desert
-        if (height < this.heightThresholds[3]) return TerrainTypes.Grass
-        if (height < this.heightThresholds[4]) return TerrainTypes.Forest
-        if (height < this.heightThresholds[5]) return TerrainTypes.Hills
-        return TerrainTypes.Mountains
-    }
-
-    /**
-     * Generate terrain for a hex based on its coordinates
-     */
-    public getTerrainForHex(hex: CustomHex): { terrain: TerrainTypes, height: number } {
-        const height = this.getNoiseValue(hex.q, hex.r)
-        const terrain = this.heightToTerrain(height)
-
-        return { terrain, height }
-    }
-
-    /**
-     * Get terrain type index (for compatibility with existing code)
-     */
-    public getTerrainIndex(hex: CustomHex): number {
-        return this.getTerrainForHex(hex).terrain
-    }
-
-    /**
-     * Update config and regenerate noise
-     */
-    public updateConfig(newConfig: Partial<NoiseConfig>) {
-        this.config = { ...this.config, ...newConfig }
-        if (newConfig.seed !== undefined) {
-            const seed = this.hashString(newConfig.seed)
-            this.noise2D = createNoise2D(() => seed)
-        }
-
-        // Recalculate thresholds if distribution changed
-        if (newConfig.terrainDistribution) {
-            this.calculateThresholds()
-        }
-    }
+export const getOverlayPath = (category: OverlayCategory, index: number): string => {
+    const v = OverlayVariants[category]
+    const safeIndex = ((index % v.files.length) + v.files.length) % v.files.length
+    const entry = v.files[safeIndex]!
+    const folder = typeof entry === 'string' ? v.folder : entry.folder
+    const file = typeof entry === 'string' ? entry : entry.file
+    return `/media/hexes2/${encodeURIComponent(folder)}/${file}`
 }
 
 // Helper function to get terrain key name

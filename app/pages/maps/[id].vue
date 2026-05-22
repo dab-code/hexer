@@ -1,131 +1,269 @@
 <script setup lang="ts">
-definePageMeta({
-  middleware: 'auth'
-})
+import { TerrainTypes } from '~/utils/terrainGenerator'
+import { downloadBlob, sanitizeFilename } from '~/utils/download'
+import type { FreePoi, ManualMap, HexOverlays } from '~/types/map'
+import type { OverlaySelection } from '~/components/OverlayPalette.vue'
+import type { PaintMode } from '~/components/PaintToolbar.vue'
+import type { DropdownMenuItem } from '@nuxt/ui'
 
 const route = useRoute()
-const { client, userId, sessionUser } = useSupaUser()
+const router = useRouter()
+const toast = useToast()
+const { get, remove, update, exportToJson } = useMaps()
 
 const mapId = route.params.id as string
+const map = computed(() => get(mapId))
 
-const { data: mapData, pending, error, refresh } = await useAsyncData(
-  `map-${mapId}`,
-  async () => {
-    const { data, error } = await client
-      .from('map_users')
-      .select(`
-        role,
-        maps!inner (
-          id,
-          name,
-          terrain_seed,
-          poi_seed,
-          player_q,
-          player_r,
-          size_w,
-          size_h,
-          hex_orientation,
-          major_pois (
-            id,
-            name,
-            q,
-            r,
-            type
-          ),
-          hexes (
-            id,
-            q,
-            r,
-            terrain,
-            is_revealed,
-            we_notes
-          )
-        )
-      `)
-      .eq('map_id', mapId)
-      .eq('user_id', userId.value)
-      .single()
+const isEditing = ref(true)
+const zoom = ref(1)
+const mode = ref<PaintMode>('terrain')
+const activeTerrain = ref<TerrainTypes>(TerrainTypes.Grass)
+const activeOverlay = ref<OverlaySelection>({ category: 'river', index: 0 })
 
-    if (error) throw error
+const previewRef = ref<{
+    reshuffleHex: (q: number, r: number) => void
+    getPngBlob: (targetWidth?: number) => Promise<Blob>
+} | null>(null)
 
-    return {
-      map: {
-        id: data.maps.id,
-        name: data.maps.name,
-        terrain_seed: data.maps.terrain_seed,
-        poi_seed: data.maps.poi_seed,
-        size_w: data.maps.size_w,
-        size_h: data.maps.size_h,
-        hex_orientation: data.maps.hex_orientation,
-        player_q: data.maps.player_q,
-        player_r: data.maps.player_r
-      },
-      role: data.role as 'world_engineer' | 'player',
-      pois: data.maps.major_pois || [],
-      revealedHexes: data.maps.hexes || []
+const activePoiMode = computed(() => mode.value === 'overlay' && activeOverlay.value?.category === 'poi')
+const activePoiErase = computed(() => activePoiMode.value && activeOverlay.value !== null && 'erase' in activeOverlay.value)
+
+function downloadJson() {
+    if (!map.value) return
+    const json = exportToJson(map.value.id)
+    downloadBlob(new Blob([json], { type: 'application/json' }), `${sanitizeFilename(map.value.name)}.hexer.json`)
+}
+
+async function downloadPng() {
+    if (!map.value || !previewRef.value) return
+    try {
+        const blob = await previewRef.value.getPngBlob()
+        downloadBlob(blob, `${sanitizeFilename(map.value.name)}.png`)
+    } catch (error: any) {
+        toast.add({ title: 'PNG export failed', description: error?.message, color: 'error' })
     }
-  },
-  {
-    immediate: false,
-    lazy: true
-  }
-)
+}
 
-watch(sessionUser, (newVal) => {
-    if (newVal) refresh()
-}, {
-    immediate: true
-})
+async function copyJson() {
+    if (!map.value) return
+    try {
+        await navigator.clipboard.writeText(exportToJson(map.value.id))
+        toast.add({ title: 'JSON copied to clipboard', color: 'primary' })
+    } catch (error: any) {
+        toast.add({ title: 'Copy failed', description: error?.message, color: 'error' })
+    }
+}
+
+function onDelete() {
+    if (!map.value) return
+    if (!confirm(`Delete "${map.value.name}"? This cannot be undone.`)) return
+    remove(map.value.id)
+    router.push('/maps')
+}
+
+function paintTerrain(q: number, r: number) {
+    if (!map.value) return
+    const key = `${q},${r}`
+    const current = map.value.overrides[key] ?? map.value.defaultTerrain
+    if (current === activeTerrain.value) {
+        previewRef.value?.reshuffleHex(q, r)
+        return
+    }
+    update(map.value.id, (m): ManualMap => {
+        const variantOverrides = { ...(m.variantOverrides ?? {}) }
+        delete variantOverrides[key]
+        return {
+            ...m,
+            overrides: { ...m.overrides, [key]: activeTerrain.value },
+            variantOverrides,
+        }
+    })
+}
+
+function toOverlayList(v: number | number[] | undefined): number[] {
+    if (v === undefined || v === null) return []
+    return Array.isArray(v) ? [...v] : [v]
+}
+
+function paintOverlay(q: number, r: number) {
+    if (!map.value) return
+    const sel = activeOverlay.value
+    if (!sel) return
+    // POIs are placed free-form via placePoi/removePoi, not by hex.
+    if (sel.category === 'poi') return
+    const key = `${q},${r}`
+    const currentForHex: HexOverlays = map.value.overlays?.[key] ?? {}
+    const currentList = toOverlayList(currentForHex[sel.category] as number | number[] | undefined)
+
+    if ('erase' in sel) {
+        if (currentList.length === 0) return
+    }
+
+    update(map.value.id, (m): ManualMap => {
+        const overlays = { ...(m.overlays ?? {}) }
+        const prevAtKey = (overlays[key] ?? {}) as Record<string, number | number[] | undefined>
+        const next: HexOverlays = {}
+        for (const c of ['river', 'path', 'poi'] as const) {
+            const v = prevAtKey[c]
+            if (v === undefined || v === null) continue
+            next[c] = Array.isArray(v) ? [...v] : [v]
+        }
+        if ('erase' in sel) {
+            delete next[sel.category]
+        } else {
+            const existing = next[sel.category] ?? []
+            const i = existing.indexOf(sel.index)
+            const updated = i >= 0
+                ? existing.filter((_, idx) => idx !== i)
+                : [...existing, sel.index]
+            if (updated.length === 0) delete next[sel.category]
+            else next[sel.category] = updated
+        }
+        if (Object.keys(next).length === 0) {
+            delete overlays[key]
+        } else {
+            overlays[key] = next
+        }
+        return { ...m, overlays }
+    })
+}
+
+function onPaint(q: number, r: number) {
+    if (mode.value === 'overlay') {
+        paintOverlay(q, r)
+    } else {
+        paintTerrain(q, r)
+    }
+}
+
+function placePoi(x: number, y: number) {
+    if (!map.value) return
+    const sel = activeOverlay.value
+    if (!sel || sel.category !== 'poi' || 'erase' in sel) return
+    const poi: FreePoi = { id: crypto.randomUUID(), index: sel.index, x, y }
+    update(map.value.id, (m): ManualMap => ({
+        ...m,
+        freePois: [...(m.freePois ?? []), poi],
+    }))
+}
+
+function removePoi(id: string) {
+    if (!map.value) return
+    update(map.value.id, (m): ManualMap => ({
+        ...m,
+        freePois: (m.freePois ?? []).filter((p) => p.id !== id),
+    }))
+}
+
+function migratePois(pois: FreePoi[]) {
+    if (!map.value || !pois.length) return
+    update(map.value.id, (m): ManualMap => {
+        const overlays = m.overlays
+            ? Object.fromEntries(
+                Object.entries(m.overlays)
+                    .map(([k, v]) => {
+                        const { poi: _drop, ...rest } = v as HexOverlays
+                        void _drop
+                        return [k, rest as HexOverlays] as const
+                    })
+                    .filter(([, v]) => Object.keys(v).length > 0)
+            )
+            : undefined
+        return {
+            ...m,
+            freePois: [...(m.freePois ?? []), ...pois],
+            overlays,
+        }
+    })
+}
+
+function onVariantsPicked(variants: Record<string, number>) {
+    if (!map.value) return
+    update(map.value.id, (m): ManualMap => {
+        const next = { ...(m.variantOverrides ?? {}) }
+        let changed = false
+        for (const [k, v] of Object.entries(variants)) {
+            if (next[k] !== v) {
+                next[k] = v
+                changed = true
+            }
+        }
+        if (!changed) return m
+        return { ...m, variantOverrides: next }
+    })
+}
+
+const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
+    [
+        { label: 'Download PNG', icon: 'i-heroicons-photo', onSelect: downloadPng },
+        { label: 'Download JSON', icon: 'i-heroicons-arrow-down-tray', onSelect: downloadJson },
+        { label: 'Copy JSON', icon: 'i-heroicons-clipboard', onSelect: copyJson },
+    ],
+    [
+        { label: 'Delete', icon: 'i-heroicons-trash', color: 'error', onSelect: onDelete },
+    ],
+])
 </script>
 
 <template>
-  <UContainer class="py-4">
-    <div v-if="pending" class="flex justify-center items-center h-[calc(100vh-200px)]">
-      <UIcon name="i-heroicons-arrow-path" class="animate-spin text-6xl" />
-    </div>
-
-    <div v-else-if="mapData?.map">
-      <div class="flex justify-between items-center mb-6">
-        <div class="flex items-center gap-4">
-          <UButton to="/maps" icon="i-heroicons-arrow-left" variant="ghost">
-            Back
-          </UButton>
-          <div>
-            <h1 class="text-2xl font-bold">{{ mapData.map.name }}</h1>
-            <UBadge :color="mapData.role === 'world_engineer' ? 'primary' : 'green'" variant="soft">
-              {{ mapData.role === 'world_engineer' ? 'World Engineer' : 'Player' }}
-            </UBadge>
-          </div>
+    <UContainer class="py-4 !max-w-none">
+        <div v-if="!map" class="text-center py-12">
+            <UIcon name="i-heroicons-exclamation-triangle" class="text-6xl text-gray-400 mb-4" />
+            <h2 class="text-xl font-semibold mb-2">Map not found</h2>
+            <p class="text-gray-500 mb-4">No map with id <code>{{ mapId }}</code> exists in this browser.</p>
+            <UButton to="/maps">Back to Worlds</UButton>
         </div>
 
-        <div v-if="mapData.role === 'world_engineer'" class="flex gap-2">
-          <UButton icon="i-heroicons-map-pin" variant="soft">
-            Add POI
-          </UButton>
-          <UButton icon="i-heroicons-users" variant="soft">
-            Invite Players
-          </UButton>
-        </div>
-      </div>
+        <div v-else>
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6">
+                <div class="flex items-center gap-3 min-w-0">
+                    <UButton to="/maps" icon="i-heroicons-arrow-left" variant="ghost" size="sm">
+                        <span class="hidden sm:inline">Back</span>
+                    </UButton>
+                    <div class="min-w-0">
+                        <h1 class="text-xl sm:text-2xl font-bold truncate">{{ map.name }}</h1>
+                    </div>
+                </div>
 
-      <UCard class="min-h-[600px]">
-        <div class="text-center py-12">
-          <UIcon name="i-heroicons-map" class="text-6xl text-gray-400 mb-4" />
-          <h2 class="text-xl font-semibold mb-2">Map Rendering Coming Soon</h2>
-          <div class="text-sm text-gray-500 space-y-1">
-            <p>Map ID: {{ mapData.map.id }}</p>
-            <p>Terrain Seed: {{ mapData.map.terrain_seed }}</p>
-            <p>POI Seed: {{ mapData.map.poi_seed }}</p>
-            <p>Hex orientation: {{ mapData.map.hex_orientation }}</p>
-            <p>Map size H: {{ mapData.map.size_h }}</p>
-            <p>Map size H: {{ mapData.map.size_h }}</p>
+                <div class="flex items-center gap-2 shrink-0">
+                    <UButton
+                        :icon="isEditing ? 'i-heroicons-check' : 'i-heroicons-paint-brush'"
+                        :color="isEditing ? 'primary' : 'neutral'"
+                        :variant="isEditing ? 'solid' : 'soft'"
+                        @click="isEditing = !isEditing"
+                    >
+                        {{ isEditing ? 'Done' : 'Edit' }}
+                    </UButton>
+                    <UDropdownMenu :items="actionMenuItems">
+                        <UButton icon="i-heroicons-ellipsis-vertical" variant="soft" aria-label="More actions" />
+                    </UDropdownMenu>
+                </div>
+            </div>
 
-            <p>Player Token: ({{ mapData.map.player_q }}, {{ mapData.map.player_r }})</p>
-            <p>Major POIs: {{ mapData.pois.length }}</p>
-            <p>Revealed Hexes: {{ mapData.revealedHexes.length }}</p>
-          </div>
+            <UCard :ui="{ body: 'p-0' }">
+                <div v-if="isEditing" class="p-3 sm:p-4">
+                    <PaintToolbar
+                        v-model:mode="mode"
+                        v-model:active-terrain="activeTerrain"
+                        v-model:active-overlay="activeOverlay"
+                        v-model:zoom="zoom"
+                    />
+                </div>
+
+                <MapPreview
+                    ref="previewRef"
+                    :map="map"
+                    :editable="isEditing"
+                    :zoom="zoom"
+                    :active-poi-mode="activePoiMode"
+                    :active-poi-erase="activePoiErase"
+                    @paint="onPaint"
+                    @variants-picked="onVariantsPicked"
+                    @place-poi="placePoi"
+                    @remove-poi="removePoi"
+                    @migrate-pois="migratePois"
+                />
+            </UCard>
         </div>
-      </UCard>
-    </div>
-  </UContainer>
+    </UContainer>
 </template>

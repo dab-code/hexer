@@ -43,6 +43,10 @@ pnpm-lock.yaml
 # Supabase
 .supabase
 
+# Scratch screenshots at repo root (Playwright sessions etc.)
+/*.png
+/.playwright-mcp/
+
 # OS generated files
 Thumbs.db
 ehthumbs.db
