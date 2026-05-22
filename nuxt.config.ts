@@ -9,24 +9,8 @@ export default defineNuxtConfig({
     '@nuxt/image',
     '@nuxt/ui',
     '@nuxt/eslint',
-    '@nuxt/scripts',
-    '@nuxtjs/supabase'
+    '@nuxt/scripts'
   ],
-
-  supabase: {
-    url: process.env.SUPABASE_URL,
-    key: process.env.SUPABASE_KEY,
-    redirectOptions: {
-      login: '/login',
-      callback: '/'
-    },
-    cookieOptions: {
-      maxAge: 60 * 60 * 8, // 8 hours
-      sameSite: 'lax',
-      secure: true
-    }
-  },
-
 
   css: ['~/assets/css/main.css']
 })

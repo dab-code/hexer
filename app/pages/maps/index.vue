@@ -1,90 +1,60 @@
 <script setup lang="ts">
-definePageMeta({
-    middleware: 'auth'
-})
+import type { DropdownMenuItem } from '@nuxt/ui'
 
-const { client, userId, sessionUser } = useSupaUser()
+const router = useRouter()
+const { list, remove, importFromJson } = useMaps()
+const toast = useToast()
 
-interface MapWithRole {
-    id: string
-    map_name: string
-    created_at: string
-    role: 'world_engineer' | 'player'
+const showImport = ref(false)
+const importText = ref('')
+
+const createMenuItems = computed<DropdownMenuItem[]>(() => [
+    { label: 'Import…', icon: 'i-heroicons-arrow-up-tray', onSelect: () => (showImport.value = true) },
+])
+
+function onImportFileChange(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+        importText.value = String(reader.result ?? '')
+    }
+    reader.readAsText(file)
 }
 
-// Use a single useAsyncData call without duplicate watches
-const { data: maps, pending, error, refresh } = await useAsyncData(
-    'user-maps',
-    async () => {
-        const { data, error } = await client
-            .from('map_users')
-            .select(`
-                role,
-                maps!inner (
-                    id,
-                    name,
-                    created_at
-                )
-            `)
-            .eq('user_id', userId.value)
-
-        if (error) {
-            console.error('Error fetching user maps:', error)
-            return []
-        }
-
-        const mappedData = (data || []).map(item => ({
-            id: item.maps.id,
-            map_name: item.maps.name,
-            created_at: item.maps.created_at,
-            role: item.role
-        })) as MapWithRole[]
-
-        return mappedData.sort((a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )
-    },
-    {
-        immediate: false,
-        lazy: true
+function submitImport() {
+    try {
+        const imported = importFromJson(importText.value)
+        toast.add({ title: 'Map imported', description: `"${imported.name}" added`, color: 'primary' })
+        importText.value = ''
+        showImport.value = false
+    } catch (error: any) {
+        toast.add({ title: 'Import failed', description: error?.message ?? 'Unknown error', color: 'error' })
     }
-)
+}
 
-watch(sessionUser, (newVal) => {
-    if (newVal) refresh()
-}, {
-    immediate: true
-})
-
-const getRoleBadge = (role: string) => {
-    return role === 'world_engineer'
-        ? { label: 'Engineer', color: 'primary' as const }
-        : { label: 'Player', color: 'green' as const }
+function onDelete(id: string, name: string) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return
+    remove(id)
+    toast.add({ title: 'Map deleted', color: 'primary' })
 }
 </script>
 
 <template>
     <UContainer class="py-8">
-        <div class="flex justify-between items-center mb-6">
-            <h1 class="text-3xl font-bold">Your Worlds</h1>
-            <UButton to="/maps/new" icon="i-heroicons-plus" size="lg">
-                Create World
-            </UButton>
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
+            <h1 class="text-2xl sm:text-3xl font-bold">Your Worlds</h1>
+            <div class="flex items-center gap-2">
+                <UButton to="/maps/new" icon="i-heroicons-plus" size="lg" class="grow sm:grow-0 justify-center">
+                    Create World
+                </UButton>
+                <UDropdownMenu :items="createMenuItems">
+                    <UButton icon="i-heroicons-ellipsis-vertical" variant="soft" size="lg" aria-label="More options" />
+                </UDropdownMenu>
+            </div>
         </div>
 
-        <div v-if="pending" class="flex justify-center py-12">
-            <UIcon name="i-heroicons-arrow-path" class="animate-spin text-4xl" />
-        </div>
-
-        <div v-else-if="error" class="text-center py-12">
-            <p class="text-red-500">Failed to load maps</p>
-            <small>
-                <pre>{{ error }}</pre>
-            </small>
-            <UButton @click="refresh" class="mt-4">Retry</UButton>
-        </div>
-
-        <div v-else-if="!maps || maps.length === 0" class="text-center py-12">
+        <div v-if="list.length === 0" class="text-center py-12">
             <UIcon name="i-heroicons-map" class="text-6xl text-gray-400 mb-4" />
             <h2 class="text-xl font-semibold mb-2">No worlds yet</h2>
             <p class="text-gray-500 mb-4">Create your first world to begin the adventure</p>
@@ -92,23 +62,46 @@ const getRoleBadge = (role: string) => {
         </div>
 
         <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <UCard v-for="map in maps" :key="map.id" class="hover:shadow-lg transition-shadow cursor-pointer">
+            <UCard v-for="map in list" :key="map.id" class="hover:shadow-lg transition-shadow">
                 <template #header>
-                    <div class="flex justify-between items-start">
+                    <div class="flex justify-between items-start gap-2">
                         <ULink :to="`/maps/${map.id}`">
-                            <h3 class="text-lg font-semibold">{{ map.map_name }}</h3>
+                            <h3 class="text-lg font-semibold">{{ map.name }}</h3>
                         </ULink>
-                        <UBadge :color="getRoleBadge(map.role).color" variant="soft">
-                            {{ getRoleBadge(map.role).label }}
-                        </UBadge>
+                        <UButton
+                            icon="i-heroicons-trash"
+                            variant="ghost"
+                            color="error"
+                            size="xs"
+                            @click="onDelete(map.id, map.name)"
+                        />
                     </div>
                 </template>
 
                 <div class="text-sm text-gray-500">
-                    Created {{ new Date(map.created_at).toLocaleDateString() }}
+                    Created {{ new Date(map.createdAt).toLocaleDateString() }}
                 </div>
-                <ULink :to="`/maps/${map.id}`">Enter</ULink>
+                <div class="text-xs text-gray-400 mt-1">
+                    {{ map.sizeW }} × {{ map.sizeH }}
+                </div>
+                <ULink :to="`/maps/${map.id}`" class="mt-2 inline-block">Open</ULink>
             </UCard>
         </div>
+
+        <UModal v-model:open="showImport" title="Import World">
+            <template #body>
+                <div class="space-y-3">
+                    <p class="text-sm text-gray-500">Paste a Hexer map JSON or upload a .json file.</p>
+                    <input type="file" accept="application/json" @change="onImportFileChange" />
+                    <UTextarea v-model="importText" :rows="10" placeholder='{ "id": "...", "name": "..." }' class="w-full" />
+                </div>
+            </template>
+            <template #footer>
+                <div class="flex justify-end gap-2 w-full">
+                    <UButton variant="ghost" @click="showImport = false">Cancel</UButton>
+                    <UButton :disabled="!importText.trim()" @click="submitImport">Import</UButton>
+                </div>
+            </template>
+        </UModal>
     </UContainer>
 </template>
