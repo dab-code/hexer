@@ -3,7 +3,7 @@ import { reactive } from 'vue'
 import { z } from 'zod'
 import type { FormSubmitEvent } from '#ui/types'
 import { Orientation } from 'honeycomb-grid'
-import { TerrainTypes } from '~/utils/terrainGenerator'
+import { DefaultTerrainForPack, packForOrientation } from '~/utils/terrainGenerator'
 import type { ManualMap } from '~/types/map'
 
 const schema = z.object({
@@ -38,7 +38,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       sizeW: event.data.sizeW,
       sizeH: event.data.sizeH,
       hexOrientation: event.data.hexOrientation,
-      defaultTerrain: TerrainTypes.Sea,
+      defaultTerrain: DefaultTerrainForPack[packForOrientation(event.data.hexOrientation)],
       overrides: {},
     }
 
@@ -75,7 +75,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       </UFormField>
 
       <UFormField label="Hex Orientation" name="hexOrientation" required>
-        <USelect v-model="state.hexOrientation" :options="ORIENTATION_OPTIONS" disabled />
+        <USelect v-model="state.hexOrientation" :items="ORIENTATION_OPTIONS" />
       </UFormField>
 
       <div class="grid grid-cols-2 gap-4">

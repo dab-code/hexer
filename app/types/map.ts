@@ -1,5 +1,15 @@
 import { Orientation } from 'honeycomb-grid'
-import { OverlayCategories, type OverlayCategory } from '~/utils/terrainGenerator'
+import { OverlayCategoriesForPack, type OverlayCategory } from '~/utils/terrainGenerator'
+
+// Union of every category any pack knows about — used when normalizing stored
+// overlays so we don't silently drop categories that belong to a different
+// pack (e.g. 'coast', which only exists in worldhex).
+const ALL_OVERLAY_CATEGORIES: readonly OverlayCategory[] = Array.from(
+  new Set([
+    ...OverlayCategoriesForPack.hexes2,
+    ...OverlayCategoriesForPack.worldhex,
+  ])
+)
 import { TerrainTypes } from '~/utils/terrainGenerator'
 
 export type HexOverlays = Partial<Record<OverlayCategory, number[]>>
@@ -37,7 +47,7 @@ function normalizeOverlays(raw: any): Record<string, HexOverlays> | undefined {
   for (const [hexKey, perHex] of Object.entries(raw)) {
     if (!perHex || typeof perHex !== 'object') continue
     const normalized: HexOverlays = {}
-    for (const cat of OverlayCategories) {
+    for (const cat of ALL_OVERLAY_CATEGORIES) {
       const v = (perHex as any)[cat]
       if (v === undefined || v === null) continue
       if (typeof v === 'number') normalized[cat] = [v]
