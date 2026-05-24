@@ -28,12 +28,11 @@ function matchesQuery(t: TerrainTypes, groupLabel: string, q: string): boolean {
 
 const filteredGroups = computed(() => {
   const q = (props.searchQuery ?? '').trim()
-  if (!q) return groups.value.map((g) => ({ ...g, hasMatch: true }))
+  if (!q) return groups.value
   return groups.value
     .map((g) => ({
       group: g.group,
       types: g.types.filter((t) => matchesQuery(t, g.group, q)),
-      hasMatch: true,
     }))
     .filter((g) => g.types.length > 0)
 })

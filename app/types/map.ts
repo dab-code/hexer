@@ -1,87 +1,77 @@
 import { Orientation } from 'honeycomb-grid'
-import { OverlayCategoriesForPack, type OverlayCategory } from '~/utils/terrainGenerator'
-
-// Union of every category any pack knows about — used when normalizing stored
-// overlays so we don't silently drop categories that belong to a different
-// pack (e.g. 'coast', which only exists in worldhex).
-const ALL_OVERLAY_CATEGORIES: readonly OverlayCategory[] = Array.from(
-  new Set([
-    ...OverlayCategoriesForPack.hexes2,
-    ...OverlayCategoriesForPack.worldhex,
-  ])
-)
+import { z } from 'zod'
 import { TerrainTypes } from '~/utils/terrainGenerator'
 
-export type HexOverlays = Partial<Record<OverlayCategory, number[]>>
+// Terrain IDs are TerrainTypes enum values, but we accept any non-negative
+// integer to keep legacy/stale maps loadable. The renderer falls back to a
+// default tile when an ID has no current variant entry.
+const terrainIdSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .transform((n) => n as TerrainTypes)
 
-export interface FreePoi {
-  id: string
-  index: number
-  x: number
-  y: number
-}
+// Overlay indices may be persisted as a single number (legacy) or array.
+const overlayIndicesSchema = z.preprocess(
+  (v) => (typeof v === 'number' ? [v] : v),
+  z.array(z.number().int().nonnegative()).min(1),
+)
 
-interface BaseMap {
-  id: string
-  name: string
-  createdAt: string
-  sizeW: number
-  sizeH: number
-  hexOrientation: Orientation
-  overlays?: Record<string, HexOverlays>
-  freePois?: FreePoi[]
-  variantOverrides?: Record<string, number>
-}
+// Per-hex overlay map. Each category is independently optional so absent
+// categories don't show up as undefined values in serialised output.
+// 'coast' only applies to the worldhex pack; absent on hexes2 maps.
+const hexOverlaysSchema = z.object({
+  river: overlayIndicesSchema.optional(),
+  path: overlayIndicesSchema.optional(),
+  coast: overlayIndicesSchema.optional(),
+  poi: overlayIndicesSchema.optional(),
+})
 
-export interface ManualMap extends BaseMap {
-  kind: 'manual'
-  defaultTerrain: TerrainTypes
-  overrides: Record<string, TerrainTypes>
-}
+const freePoiSchema = z.object({
+  id: z.string().min(1),
+  index: z.number().int().nonnegative(),
+  x: z.number().finite(),
+  y: z.number().finite(),
+})
 
+const manualMapSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    createdAt: z.string(),
+    sizeW: z.number().int().positive(),
+    sizeH: z.number().int().positive(),
+    hexOrientation: z.enum([Orientation.FLAT, Orientation.POINTY]),
+    kind: z.literal('manual').default('manual'),
+    defaultTerrain: terrainIdSchema,
+    overrides: z.record(z.string(), terrainIdSchema),
+    overlays: z.record(z.string(), hexOverlaysSchema).optional(),
+    freePois: z.array(freePoiSchema).optional(),
+    variantOverrides: z
+      .record(z.string(), z.number().int().nonnegative())
+      .optional(),
+  })
+  .strict()
+
+export type HexOverlays = z.infer<typeof hexOverlaysSchema>
+export type FreePoi = z.infer<typeof freePoiSchema>
+export type ManualMap = z.infer<typeof manualMapSchema>
 export type SavedMap = ManualMap
 
-function normalizeOverlays(raw: any): Record<string, HexOverlays> | undefined {
-  if (!raw || typeof raw !== 'object') return undefined
-  const out: Record<string, HexOverlays> = {}
-  for (const [hexKey, perHex] of Object.entries(raw)) {
-    if (!perHex || typeof perHex !== 'object') continue
-    const normalized: HexOverlays = {}
-    for (const cat of ALL_OVERLAY_CATEGORIES) {
-      const v = (perHex as any)[cat]
-      if (v === undefined || v === null) continue
-      if (typeof v === 'number') normalized[cat] = [v]
-      else if (Array.isArray(v)) {
-        const arr = v.filter((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0)
-        if (arr.length) normalized[cat] = arr
-      }
-    }
-    if (Object.keys(normalized).length) out[hexKey] = normalized
-  }
-  return Object.keys(out).length ? out : undefined
+// One entry point for "is this a valid SavedMap?", used by both storage read
+// and JSON import. Strips known-legacy fields and defaults kind before parse.
+export function parseSavedMap(raw: unknown): SavedMap | null {
+  if (!raw || typeof raw !== 'object') return null
+  const obj = raw as Record<string, unknown>
+  const {
+    colorOverrides: _legacyColors,
+    noiseConfig: _legacyNoise,
+    ...rest
+  } = obj
+  void _legacyColors
+  void _legacyNoise
+  const result = manualMapSchema.safeParse({ kind: 'manual', ...rest })
+  return result.success ? result.data : null
 }
 
-function normalizeFreePois(raw: any): FreePoi[] | undefined {
-  if (!Array.isArray(raw)) return undefined
-  const out: FreePoi[] = []
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') continue
-    const { id, index, x, y } = entry as Partial<FreePoi>
-    if (typeof id !== 'string' || !id) continue
-    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) continue
-    if (typeof x !== 'number' || !Number.isFinite(x)) continue
-    if (typeof y !== 'number' || !Number.isFinite(y)) continue
-    out.push({ id, index, x, y })
-  }
-  return out.length ? out : undefined
-}
-
-export function normalizeSavedMap(raw: any): SavedMap | null {
-  if (!raw || typeof raw !== 'object' || !raw.id || !raw.name) return null
-  if (raw.kind && raw.kind !== 'manual') return null
-  const overlays = normalizeOverlays(raw.overlays)
-  const freePois = normalizeFreePois(raw.freePois)
-  const { colorOverrides: _drop, noiseConfig: _drop2, ...rest } = raw
-  void _drop; void _drop2
-  return { ...rest, kind: 'manual', overlays, freePois } as ManualMap
-}
+export { manualMapSchema }

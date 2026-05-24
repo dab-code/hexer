@@ -4,36 +4,6 @@ export const randomRoll = (entryCount: number) => {
     return Math.floor((Math.random() * entryCount))
 }
 
-export const multipleRolls = (entryCount: number, rolls: number) => {
-    let total = 0
-
-    for(let i = 0; i < rolls; i++) {
-        total += randomRoll(entryCount)
-    }
-
-    return total
-}
-
-// Danger level
-enum DangerLevel {
-    Safe = 0,
-    Unsafe = 1,
-    Risky = 2,
-    Deadly = 3
-}
-export const getDangerLevelKeyByValue = (value: number): keyof typeof DangerLevel | undefined => {
-    return DangerLevel[value] as keyof typeof DangerLevel | undefined
-}
-const dangerLevelsWeighted = [
-    DangerLevel.Safe,
-    DangerLevel.Unsafe,
-    DangerLevel.Unsafe,
-    DangerLevel.Risky,
-    DangerLevel.Risky,
-    DangerLevel.Deadly
-]
-export const getDangerLevel = () => dangerLevelsWeighted[randomRoll(dangerLevelsWeighted.length)] ?? DangerLevel.Safe
-
 // ----------------------------------------------------------------------------
 // Packs: tile-art families. Orientation picks which pack a map uses.
 // ----------------------------------------------------------------------------
@@ -253,10 +223,22 @@ const buildAssetUrl = (pack: Pack, folder: string, file: string): string => {
         : `/media/${pack}/${encodeURIComponent(file)}`
 }
 
-const variantUrl = (v: VariantPack, index: number): string => {
-    const safeIndex = ((index % v.files.length) + v.files.length) % v.files.length
-    return buildAssetUrl(v.pack, v.folder, v.files[safeIndex]!)
+// Positive modulo: wrap any integer (incl. negative) into [0, length).
+export const wrapIndex = (index: number, length: number): number =>
+    ((index % length) + length) % length
+
+const resolveOverlayEntry = (
+    list: OverlayVariantList,
+    index: number,
+): { folder: string; file: string } => {
+    const entry = list.files[wrapIndex(index, list.files.length)]!
+    return typeof entry === 'string'
+        ? { folder: list.folder, file: entry }
+        : { folder: entry.folder, file: entry.file }
 }
+
+const variantUrl = (v: VariantPack, index: number): string =>
+    buildAssetUrl(v.pack, v.folder, v.files[wrapIndex(index, v.files.length)]!)
 
 /**
  * Get a random terrain variant image path for a given terrain type
@@ -318,11 +300,6 @@ export const OverlayCategoriesForPack: Record<Pack, readonly OverlayCategory[]> 
     hexes2: ['river', 'path', 'poi'],
     worldhex: ['river', 'path', 'coast', 'poi'],
 }
-
-// Back-compat: components that imported OverlayCategories were assuming hexes2.
-// Default to the hexes2 set; consumers that know the pack should prefer
-// OverlayCategoriesForPack[pack].
-export const OverlayCategories: readonly OverlayCategory[] = OverlayCategoriesForPack.hexes2
 
 export const OverlayCategoryLabels: Record<OverlayCategory, string> = {
     river: 'River',
@@ -569,16 +546,6 @@ export const OverlayVariantsByPack: Record<Pack, Partial<Record<OverlayCategory,
     },
 }
 
-// Back-compat: components that pre-date pack-awareness imported OverlayVariants
-// (= hexes2 set). Keep the export pointing at the hexes2 lists.
-export const OverlayVariants: Record<OverlayCategory, OverlayVariantList> = {
-    river: OverlayVariantsByPack.hexes2.river!,
-    path:  OverlayVariantsByPack.hexes2.path!,
-    poi:   OverlayVariantsByPack.hexes2.poi!,
-    // hexes2 has no coast; provide an empty list so type access doesn't NPE.
-    coast: { folder: '', files: [] },
-}
-
 export const overlayVariantFilename = (entry: OverlayVariantEntry): string =>
     typeof entry === 'string' ? entry : entry.file
 
@@ -588,10 +555,7 @@ const resolveOverlayList = (pack: Pack, category: OverlayCategory): OverlayVaria
 export const getOverlayPath = (category: OverlayCategory, index: number, pack: Pack = 'hexes2'): string => {
     const v = resolveOverlayList(pack, category)
     if (!v || !v.files.length) return ''
-    const safeIndex = ((index % v.files.length) + v.files.length) % v.files.length
-    const entry = v.files[safeIndex]!
-    const folder = typeof entry === 'string' ? v.folder : entry.folder
-    const file = typeof entry === 'string' ? entry : entry.file
+    const { folder, file } = resolveOverlayEntry(v, index)
     return buildAssetUrl(pack, folder, file)
 }
 
@@ -693,8 +657,7 @@ export const getTerrainKeyByIndex = (index: number): keyof typeof TerrainTypes =
 export const getTerrainExportUrl = (terrainType: TerrainTypes, variantIndex: number): string => {
     const v = resolveVariantPack(terrainType)
     if (v.pack !== 'worldhex') return getTerrainVariantByIndex(terrainType, variantIndex)
-    const safeIndex = ((variantIndex % v.files.length) + v.files.length) % v.files.length
-    const file = v.files[safeIndex]!.replace(/\.png$/i, '.webp')
+    const file = v.files[wrapIndex(variantIndex, v.files.length)]!.replace(/\.png$/i, '.webp')
     return buildAssetUrl('worldhex', WORLDHEX_ROOT_300, file)
 }
 
@@ -702,10 +665,7 @@ export const getOverlayExportUrl = (category: OverlayCategory, index: number, pa
     if (pack !== 'worldhex') return getOverlayPath(category, index, pack)
     const v = resolveOverlayList(pack, category)
     if (!v || !v.files.length) return ''
-    const safeIndex = ((index % v.files.length) + v.files.length) % v.files.length
-    const entry = v.files[safeIndex]!
-    const folder = typeof entry === 'string' ? v.folder : entry.folder
-    const file = typeof entry === 'string' ? entry : entry.file
+    const { folder, file } = resolveOverlayEntry(v, index)
     const webp = file.replace(/\.png$/i, '.webp')
     const folder300 = folder.replace(WORLDHEX_ROOT_72, WORLDHEX_ROOT_300)
     return buildAssetUrl('worldhex', folder300, webp)

@@ -67,7 +67,7 @@ const terrainLabelText = computed(() => {
 
 const overlayLabelText = computed(() => {
   const sel = activeOverlay.value
-  if (!sel || 'erase' in sel) return null
+  if (!sel) return null
   const catLabel = OverlayCategoryLabels[sel.category]
 
   if (props.pack === 'worldhex' && (sel.category === 'river' || sel.category === 'path' || sel.category === 'coast')) {
@@ -97,9 +97,7 @@ const overlayLabelText = computed(() => {
 
 const eraseScopeLabel = computed(() => {
   if (tool.value === 'terrain') return 'terrain'
-  const cat = activeOverlay.value && 'category' in activeOverlay.value
-    ? activeOverlay.value.category
-    : 'river'
+  const cat = activeOverlay.value?.category ?? 'river'
   return OverlayCategoryLabels[cat].toLowerCase()
 })
 
