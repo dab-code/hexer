@@ -39,8 +39,8 @@ const manualMapSchema = z
     id: z.string().min(1),
     name: z.string().min(1),
     createdAt: z.string(),
-    sizeW: z.number().int().positive(),
-    sizeH: z.number().int().positive(),
+    sizeW: z.number().int().positive().max(200),
+    sizeH: z.number().int().positive().max(200),
     hexOrientation: z.enum([Orientation.FLAT, Orientation.POINTY]),
     kind: z.literal('manual').default('manual'),
     defaultTerrain: terrainIdSchema,
@@ -51,7 +51,6 @@ const manualMapSchema = z
       .record(z.string(), z.number().int().nonnegative())
       .optional(),
   })
-  .strict()
 
 export type HexOverlays = z.infer<typeof hexOverlaysSchema>
 export type FreePoi = z.infer<typeof freePoiSchema>
@@ -59,18 +58,10 @@ export type ManualMap = z.infer<typeof manualMapSchema>
 export type SavedMap = ManualMap
 
 // One entry point for "is this a valid SavedMap?", used by both storage read
-// and JSON import. Strips known-legacy fields and defaults kind before parse.
+// and JSON import. Unknown fields are silently stripped by the schema.
 export function parseSavedMap(raw: unknown): SavedMap | null {
   if (!raw || typeof raw !== 'object') return null
-  const obj = raw as Record<string, unknown>
-  const {
-    colorOverrides: _legacyColors,
-    noiseConfig: _legacyNoise,
-    ...rest
-  } = obj
-  void _legacyColors
-  void _legacyNoise
-  const result = manualMapSchema.safeParse({ kind: 'manual', ...rest })
+  const result = manualMapSchema.safeParse({ kind: 'manual', ...raw })
   return result.success ? result.data : null
 }
 
