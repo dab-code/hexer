@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { SVG } from '@svgdotjs/svg.js'
-import { type CustomHex } from '~/classes/CustomHex'
+import { Grid, Orientation, rectangle } from 'honeycomb-grid'
+import { createCustomHex, type CustomHex } from '~/classes/CustomHex'
 import {
-  OverlayCategoriesForPack,
   TerrainTypes,
   TerrainVariants,
-  getOverlayPath,
   getTerrainKeyByIndex,
   getTerrainVariantByIndex,
   packForOrientation,
-  type Pack,
+  wrapIndex,
 } from '~/utils/terrainGenerator'
+import { packAdapterFor } from '~/packs'
 import type { FreePoi, HexOverlays, SavedMap } from '~/types/map'
 
 const props = defineProps<{
@@ -23,36 +23,11 @@ const props = defineProps<{
 
 const BG_COLOR = '#e9e9e9'
 
-// Worldhex source tiles are 224×194 PNGs, but the hex polygon art is inscribed
-// inside them with substantial transparent padding. Measured pixel bounds
-// (alpha > 16): art at x=[54,169], y=[46,156]. The hex polygon (without the
-// south-side ledge) sits at roughly x=[54,170], y=[46,146]; the bottom ~10 px
-// is the dark ledge that protrudes below the polygon's bottom edge.
-const WH_IMG_W = 224
-const WH_IMG_H = 194
-const WH_POLY_LEFT = 54   // left padding before the hex polygon starts
-const WH_POLY_TOP = 46    // top padding before the hex polygon starts
-const WH_POLY_W = 116     // hex polygon width in source pixels
-const WH_POLY_H = 100     // hex polygon height in source pixels (without ledge)
-// Small upscale on worldhex tile rendering so adjacent tile art overlaps by
-// ~1 px on each side — masks the BG_COLOR seam that's otherwise visible at
-// anti-aliased edges + sub-pixel rounding boundaries.
-const WH_TILE_BLEED = 1.025
-
-// Peak Mountain tiles ("peak (lush)" / "peak (snowy)" / "peak (rocky)") are
-// authored with the hex polygon shifted ~11 px LEFT inside the source PNG
-// (polygon at x=[43,158] instead of the standard x=[54,169]). Without this
-// override they render visibly off-centred on the map. URLs are %-encoded so
-// the comma after "Mountains" lands as %2C — match either form to be safe.
-function polyLeftForUrl(url: string): number {
-  return /peak%20\(|peak\s\(/i.test(url) ? 43 : WH_POLY_LEFT
-}
-
-// Stamp (free-POI) natural dimensions are different per file and small (a tree
-// is ~47×36 px, a pin is ~18×24 px). We measure each one via Image().naturalSize
-// on first encounter, cache the result, and render at source_px × WH_SCALE so
-// stamps appear at the same physical density as hex tile art.
-const WH_SCALE = 60 / WH_POLY_W  // SVG-units per source-pixel (≈0.5172)
+// Free-POI stamps render at native dimensions × this scale. The factor matches
+// worldhex hex-tile-art density (60 SVG units per ~116 source-pixel polygon).
+// Constant lives here because only renderFreePois needs it; the hex tile
+// placement math has moved to the Pack adapter (app/packs).
+const WH_SCALE = 60 / 116
 const stampNativeSizes = new Map<string, { w: number; h: number }>()
 const stampPendingLoads = new Set<string>()
 function ensureStampSize(url: string): { w: number; h: number } | null {
@@ -85,7 +60,32 @@ const MAX_MAP_WIDTH = 600
 const MAX_MAP_HEIGHT = 600
 const SVG_PADDING = 2
 
-const { grid, hexArray, boundingBox, createGrid } = useHexGrid()
+const grid = shallowRef<Grid<CustomHex> | null>(null)
+const hexArray = shallowRef<CustomHex[]>([])
+const boundingBox = ref<{ minX: number; minY: number; maxX: number; maxY: number } | null>(null)
+
+function createGrid(width: number, height: number, orientation: Orientation) {
+  const HexCtor = createCustomHex(orientation)
+  const generated = new Grid(HexCtor, rectangle({ width, height }))
+
+  let minX = Infinity, minY = Infinity
+  let maxX = -Infinity, maxY = -Infinity
+  const hexes: CustomHex[] = []
+  generated.traverse(rectangle({ start: [0, 0], width, height })).forEach((hex: CustomHex) => {
+    hex.corners.forEach(({ x, y }) => {
+      if (x < minX) minX = x
+      if (y < minY) minY = y
+      if (x > maxX) maxX = x
+      if (y > maxY) maxY = y
+    })
+    hexes.push(hex)
+  })
+
+  hexArray.value = hexes
+  boundingBox.value = { minX, minY, maxX, maxY }
+  grid.value = markRaw(generated)
+}
+
 const mapRef = ref<HTMLElement>()
 const isPainting = ref(false)
 const paintedThisDrag = new Set<string>()
@@ -115,9 +115,11 @@ function pickVariantForHex(hex: CustomHex, terrain: TerrainTypes): number {
   const key = `${hex.q},${hex.r}`
   const persisted = props.map.variantOverrides?.[key]
   const terrainKey = getTerrainKeyByIndex(terrain)
-  const variantCount = TerrainVariants[terrainKey].files.length
+  // Legacy maps may carry terrain IDs that no longer map; getTerrainVariantByIndex
+  // already falls back to a Blank tile, but we still need a non-zero variant count.
+  const variantCount = TerrainVariants[terrainKey]?.files.length ?? 1
   if (persisted !== undefined) {
-    const safe = ((persisted % variantCount) + variantCount) % variantCount
+    const safe = wrapIndex(persisted, variantCount)
     variantCache.set(key, { terrain, variantIndex: safe })
     return safe
   }
@@ -137,20 +139,15 @@ function effectiveTerrainFor(q: number, r: number): TerrainTypes {
   return props.map.overrides[`${q},${r}`] ?? props.map.defaultTerrain
 }
 
-function buildTerrainResolver(): (hex: CustomHex) => TerrainTypes {
-  const { overrides, defaultTerrain } = props.map
-  return (hex) => overrides[`${hex.q},${hex.r}`] ?? defaultTerrain
-}
-
 function regenerate() {
-  createGrid(props.map.sizeW, props.map.sizeH, props.map.hexOrientation, buildTerrainResolver())
+  createGrid(props.map.sizeW, props.map.sizeH, props.map.hexOrientation)
 }
 
 const neighbourOffsets = [
   [+1, 0], [-1, 0], [0, +1], [0, -1], [+1, -1], [-1, +1],
 ] as const
 
-const activePack = computed<Pack>(() => packForOrientation(props.map.hexOrientation))
+const activeAdapter = computed(() => packAdapterFor(packForOrientation(props.map.hexOrientation)))
 
 function centerOf(h: { corners: { x: number; y: number }[] }) {
   let sx = 0, sy = 0
@@ -199,7 +196,7 @@ function captureSnapshot(): Snapshot {
 function renderHex(hex: CustomHex, group: SvgGroup) {
   if (!defsInstance) return
 
-  const pack = activePack.value
+  const adapter = activeAdapter.value
   const effectiveTerrain = effectiveTerrainFor(hex.q, hex.r)
 
   const key = `${hex.q},${hex.r}`
@@ -217,45 +214,21 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
     height: Math.max(...ys) - Math.min(...ys),
   }
 
-  // Worldhex tiles render the hex art with transparent padding around it AND a
-  // ledge that protrudes below the polygon's bottom edge. We scale & offset the
-  // image so the inscribed polygon-art lines up with the SVG hex polygon, and
-  // skip clipping entirely — the natural overlap is handled by painter's
-  // algorithm (hexes drawn in y-sorted order; southern neighbours cover the
-  // upper hex's ledge with their own gray hex background + art).
-  // For pointy (hexes2) maps we keep the original polygon clip-path.
-  let placeArgs: { w: number; h: number; x: number; y: number; clip?: string }
-  if (pack === 'worldhex') {
-    const sx = (hexBounds.width / WH_POLY_W) * WH_TILE_BLEED
-    const sy = (hexBounds.height / WH_POLY_H) * WH_TILE_BLEED
-    const polyLeft = polyLeftForUrl(terrainAsset)
-    // Centre the polygon on the SVG hex centre. Source-polygon centre is at
-    // (polyLeft + WH_POLY_W/2, WH_POLY_TOP + WH_POLY_H/2) in source pixels.
-    const srcPolyCx = polyLeft + WH_POLY_W / 2
-    const srcPolyCy = WH_POLY_TOP + WH_POLY_H / 2
-    const hexCx = hexBounds.x + hexBounds.width / 2
-    const hexCy = hexBounds.y + hexBounds.height / 2
-    placeArgs = {
-      w: WH_IMG_W * sx,
-      h: WH_IMG_H * sy,
-      x: hexCx - srcPolyCx * sx,
-      y: hexCy - srcPolyCy * sy,
-    }
-  } else {
+  // Where to put the tile image, and (for pointy) what polygon to clip it to.
+  // Worldhex tiles intentionally bleed past the polygon — the painter's-algorithm
+  // sort lets southern neighbours cover upper hexes' protruding ledges.
+  const place = adapter.tilePlacement(terrainAsset, hexBounds)
+  let clip: string | undefined
+  if (adapter.needsPolygonClip) {
     let clipId = hexClipIds.get(key)
     if (!clipId) {
       clipId = `hex-clip-${hex.q}_${hex.r}`.replace(/-/g, 'n')
       hexClipIds.set(key, clipId)
       defsInstance.clip().attr('id', clipId).polygon(corners)
     }
-    placeArgs = {
-      w: hexBounds.width,
-      h: hexBounds.height,
-      x: hexBounds.x,
-      y: hexBounds.y,
-      clip: `url(#${clipId})`,
-    }
+    clip = `url(#${clipId})`
   }
+  const placeArgs: { w: number; h: number; x: number; y: number; clip?: string } = { ...place, clip }
 
   group.polygon(corners).fill(BG_COLOR)
 
@@ -273,14 +246,13 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
 
   const hexOverlays = overlayMap[key]
   if (hexOverlays) {
-    for (const category of OverlayCategoriesForPack[pack]) {
+    for (const category of adapter.overlayCategories) {
       if (category === 'poi') continue
-      const raw = (hexOverlays as Record<string, number | number[] | undefined>)[category]
-      const indices = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw]
-      if (!indices.length) continue
+      const indices = hexOverlays[category]
+      if (!indices || !indices.length) continue
       for (const idx of indices) {
         const overlayImg = group
-          .image(getOverlayPath(category, idx, pack))
+          .image(adapter.overlayUrl(category, idx))
           .size(placeArgs.w, placeArgs.h)
           .move(placeArgs.x, placeArgs.y)
           .attr('pointer-events', 'none')
@@ -289,9 +261,7 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
     }
   }
 
-  // Hex outline: only for pointy maps. Worldhex tiles bake their own outline,
-  // and an SVG stroke on top would clash visually.
-  if (pack !== 'worldhex') {
+  if (adapter.drawsOutline) {
     group.polygon(corners).fill('none').stroke({ color: '#333', width: 0.05 })
   }
 
@@ -366,10 +336,10 @@ function render() {
 
   hexArray.value.forEach((h) => hexLookup.set(`${h.q},${h.r}`, h))
 
-  // Painter's algorithm for worldhex: lower-y hexes drawn first so southern
-  // neighbours (higher y, drawn later) naturally cover upper hexes' ledges.
-  // For pointy (hexes2) maps draw order is irrelevant — keep the source order.
-  const renderOrder = activePack.value === 'worldhex'
+  // Painter's algorithm (when the pack needs it): lower-y hexes drawn first so
+  // southern neighbours cover upper hexes' protruding ledges. Pointy hexes2
+  // tiles don't bleed past their polygon, so source order is fine.
+  const renderOrder = activeAdapter.value.needsPainterSort
     ? [...hexArray.value].sort((a, b) => centerOf(a).y - centerOf(b).y)
     : hexArray.value
 
@@ -405,14 +375,14 @@ function renderFreePois() {
   const pois = props.map.freePois
   if (!pois || !pois.length) return
   const { width: hexW, height: hexH } = getHexBoundsSize()
-  const pack = activePack.value
+  const adapter = activeAdapter.value
   for (const poi of pois) {
-    const url = getOverlayPath('poi', poi.index, pack)
+    const url = adapter.overlayUrl('poi', poi.index)
     // Worldhex extras are small native-sized PNGs; size by their natural
     // dimensions scaled to match the worldhex tile-art density. hexes2 POIs
     // keep their existing hex-bounding-box size for back-compat.
     let w = hexW, h = hexH
-    if (pack === 'worldhex') {
+    if (adapter.id === 'worldhex') {
       const native = ensureStampSize(url)
       if (native) {
         w = native.w * WH_SCALE
@@ -507,10 +477,13 @@ function diffAndUpdate() {
     for (let i = 0; i < al.length; i++) if (al[i] !== bl[i]) return false
     return true
   }
+  const overlayCategories = activeAdapter.value.overlayCategories
   for (const k of allKeys(prevSnapshot.overlays, now.overlays)) {
     const a = prevSnapshot.overlays[k] ?? {}
     const b = now.overlays[k] ?? {}
-    if (!sameList(a.river, b.river) || !sameList(a.path, b.path) || !sameList(a.poi, b.poi)) changed.add(k)
+    for (const cat of overlayCategories) {
+      if (!sameList(a[cat], b[cat])) { changed.add(k); break }
+    }
   }
 
   for (const key of changed) {
@@ -546,7 +519,7 @@ function reshuffleHex(q: number, r: number) {
   if (!hex || !group) return
   const effectiveTerrain = effectiveTerrainFor(hex.q, hex.r)
   const terrainKey = getTerrainKeyByIndex(effectiveTerrain)
-  const variantCount = TerrainVariants[terrainKey].files.length
+  const variantCount = TerrainVariants[terrainKey]?.files.length ?? 1
   const persisted = props.map.variantOverrides?.[key]
   // Pick a NEW index different from the persisted one (if multiple variants exist).
   let idx = Math.floor(Math.random() * variantCount)
@@ -564,7 +537,7 @@ function reshuffleHex(q: number, r: number) {
     imgEl.setAttribute('href', newUrl)
     imgEl.setAttributeNS(XLINK_NS, 'href', newUrl)
   } else {
-    updateHex(q, r, false)
+    updateHex(q, r)
   }
   queueVariantEmit(key, idx)
 }
@@ -601,7 +574,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 const WORLDHEX_TARGET_PX_PER_HEX_150DPI = 467
 
 function defaultExportWidth(): number {
-  if (activePack.value === 'worldhex') {
+  if (activeAdapter.value.id === 'worldhex') {
     return Math.max(2048, props.map.sizeW * WORLDHEX_TARGET_PX_PER_HEX_150DPI)
   }
   return 8192
@@ -648,7 +621,7 @@ async function getSvgString(opts?: { width?: number; height?: number }): Promise
   // For worldhex exports, swap the 72-DPI PNG URLs to their 300-DPI WebP
   // counterparts so the saved PNG is crisp at ~150 effective DPI.
   const upgradeUrlForExport = (href: string): string => {
-    if (activePack.value !== 'worldhex') return href
+    if (activeAdapter.value.id !== 'worldhex') return href
     if (!href.startsWith('/media/worldhex/')) return href
     return href
       .replace('/media/worldhex/Assets%20-%2072%20DPI', '/media/worldhex/Assets%20-%20300%20DPI')

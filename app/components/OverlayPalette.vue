@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import {
-  OverlayCategoriesForPack,
   OverlayCategoryLabels,
   OverlayVariantsByPack,
-  getOverlayPath,
-  groupDirectionalOverlays,
-  groupExtras,
   overlayVariantFilename,
   type OverlayCategory,
   type Pack,
 } from '~/utils/terrainGenerator'
+import { packAdapterFor } from '~/packs'
 
 export type OverlaySelection = { category: OverlayCategory; index: number } | null
 
@@ -19,7 +16,9 @@ const props = defineProps<{
   searchQuery?: string
 }>()
 
-const categories = computed(() => OverlayCategoriesForPack[props.pack])
+const adapter = computed(() => packAdapterFor(props.pack))
+const categories = computed(() => adapter.value.overlayCategories)
+const paletteShape = computed(() => adapter.value.overlayPaletteShape(activeCategory.value))
 
 const activeCategory = ref<OverlayCategory>(
   selection.value ? selection.value.category : 'river'
@@ -69,21 +68,16 @@ function isPicked(index: number) {
   return !!s && s.category === activeCategory.value && s.index === index
 }
 
-const flatVariants = computed(() => {
-  const list = OverlayVariantsByPack[props.pack]?.[activeCategory.value]
-  return list ? list.files : []
-})
+const flatVariants = computed(() =>
+  paletteShape.value.kind === 'flat' ? paletteShape.value.entries : [],
+)
 
 const directionalGroups = computed(() =>
-  props.pack === 'worldhex' && (activeCategory.value === 'river' || activeCategory.value === 'path' || activeCategory.value === 'coast')
-    ? groupDirectionalOverlays(props.pack, activeCategory.value)
-    : null
+  paletteShape.value.kind === 'directional' ? paletteShape.value.groups : null,
 )
 
 const extrasGroups = computed(() =>
-  props.pack === 'worldhex' && activeCategory.value === 'poi'
-    ? groupExtras(props.pack)
-    : null
+  paletteShape.value.kind === 'extras' ? paletteShape.value.groups : null,
 )
 
 const query = computed(() => (props.searchQuery ?? '').trim().toLowerCase())
@@ -158,7 +152,7 @@ const filteredFlatVariants = computed(() => {
             :title="`${g.pattern} ${e.direction}`"
             @click="pick(e.index)"
           >
-            <img :src="getOverlayPath(activeCategory, e.index, pack)" :alt="`${g.pattern} ${e.direction}`">
+            <img :src="adapter.overlayUrl(activeCategory, e.index)" :alt="`${g.pattern} ${e.direction}`">
             <span class="variant-label">{{ e.direction }}</span>
           </button>
         </div>
@@ -180,7 +174,7 @@ const filteredFlatVariants = computed(() => {
             :title="e.file.replace(/\.png$/, '')"
             @click="pick(e.index)"
           >
-            <img :src="getOverlayPath(activeCategory, e.index, pack)" :alt="e.file">
+            <img :src="adapter.overlayUrl(activeCategory, e.index)" :alt="e.file">
           </button>
         </div>
       </div>
@@ -199,7 +193,7 @@ const filteredFlatVariants = computed(() => {
           :title="flatVariantLabel(activeCategory, item.index)"
           @click="pick(item.index)"
         >
-          <img :src="getOverlayPath(activeCategory, item.index, pack)" :alt="flatVariantLabel(activeCategory, item.index)">
+          <img :src="adapter.overlayUrl(activeCategory, item.index)" :alt="flatVariantLabel(activeCategory, item.index)">
           <span class="variant-label">{{ flatVariantLabel(activeCategory, item.index) }}</span>
         </button>
       </div>

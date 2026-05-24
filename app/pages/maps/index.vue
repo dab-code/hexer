@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from '@nuxt/ui'
 
-const router = useRouter()
 const { list, remove, importFromJson } = useMaps()
 const toast = useToast()
 

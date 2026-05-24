@@ -1,36 +1,7 @@
 import { createSharedComposable, useLocalStorage } from '@vueuse/core'
-import { Orientation } from 'honeycomb-grid'
-import { z } from 'zod'
-import { type SavedMap, normalizeSavedMap } from '~/types/map'
+import { type SavedMap, parseSavedMap } from '~/types/map'
 
 const STORAGE_KEY = 'hexer:maps'
-
-const overlayCategorySchema = z.enum(['river', 'path', 'poi'])
-const hexOverlaysSchema = z.record(overlayCategorySchema, z.array(z.number().int().min(0)))
-const overlaysSchema = z.record(z.string(), hexOverlaysSchema).optional()
-
-const freePoiSchema = z.object({
-  id: z.string(),
-  index: z.number().int().min(0),
-  x: z.number(),
-  y: z.number(),
-})
-const freePoisSchema = z.array(freePoiSchema).optional()
-
-const manualMapSchema = z.object({
-  id: z.string(),
-  name: z.string().min(1),
-  createdAt: z.string(),
-  sizeW: z.number().int().positive(),
-  sizeH: z.number().int().positive(),
-  hexOrientation: z.enum([Orientation.FLAT, Orientation.POINTY]),
-  overlays: overlaysSchema,
-  freePois: freePoisSchema,
-  variantOverrides: z.record(z.string(), z.number().int().min(0)).optional(),
-  kind: z.literal('manual'),
-  defaultTerrain: z.number().int().min(0).max(5),
-  overrides: z.record(z.string(), z.number().int().min(0).max(5)),
-})
 
 export const useMaps = createSharedComposable(() => {
   const maps = useLocalStorage<SavedMap[]>(STORAGE_KEY, [], {
@@ -39,7 +10,7 @@ export const useMaps = createSharedComposable(() => {
         try {
           const parsed = JSON.parse(raw)
           if (!Array.isArray(parsed)) return []
-          return parsed.map(normalizeSavedMap).filter((m): m is SavedMap => m !== null)
+          return parsed.map(parseSavedMap).filter((m): m is SavedMap => m !== null)
         } catch {
           return []
         }
@@ -81,13 +52,12 @@ export const useMaps = createSharedComposable(() => {
     } catch {
       throw new Error('Not valid JSON')
     }
-    const normalized = normalizeSavedMap(parsed)
-    const result = manualMapSchema.safeParse(normalized)
-    if (!result.success) {
+    const result = parseSavedMap(parsed)
+    if (!result) {
       throw new Error('JSON is not a valid Hexer map')
     }
     const imported: SavedMap = {
-      ...result.data,
+      ...result,
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     }

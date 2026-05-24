@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { TerrainTypes, packForOrientation, DefaultTerrainForPack, OverlayCategoriesForPack } from '~/utils/terrainGenerator'
+import { TerrainTypes, packForOrientation, DefaultTerrainForPack } from '~/utils/terrainGenerator'
 import { downloadBlob, sanitizeFilename } from '~/utils/download'
-import type { FreePoi, ManualMap, HexOverlays } from '~/types/map'
+import type { FreePoi } from '~/types/map'
+import * as edits from '~/edits/mapEdits'
 import type { OverlaySelection } from '~/components/OverlayPalette.vue'
 import type { PaintMode } from '~/components/EditorSidebar.vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
@@ -71,147 +72,52 @@ function onDelete() {
     router.push('/maps')
 }
 
-function paintTerrain(q: number, r: number) {
+function onPaint(q: number, r: number) {
     if (!map.value) return
-    const key = `${q},${r}`
-
-    if (eraseMode.value) {
-        if (!(key in map.value.overrides)) return
-        update(map.value.id, (m): ManualMap => {
-            const overrides = { ...m.overrides }
-            delete overrides[key]
-            const variantOverrides = { ...(m.variantOverrides ?? {}) }
-            delete variantOverrides[key]
-            return { ...m, overrides, variantOverrides }
-        })
+    if (mode.value === 'overlay') {
+        const sel = activeOverlay.value
+        if (!sel || sel.category === 'poi') return
+        if (eraseMode.value) {
+            update(map.value.id, (m) => edits.eraseOverlay(m, q, r, sel.category, mapPack.value))
+        } else {
+            update(map.value.id, (m) => edits.toggleOverlay(m, q, r, sel.category, sel.index, mapPack.value))
+        }
         return
     }
-
-    const current = map.value.overrides[key] ?? map.value.defaultTerrain
+    // Terrain mode.
+    if (eraseMode.value) {
+        update(map.value.id, (m) => edits.eraseTerrain(m, q, r))
+        return
+    }
+    const current = map.value.overrides[`${q},${r}`] ?? map.value.defaultTerrain
     if (current === activeTerrain.value) {
+        // Re-painting same terrain re-rolls the visual variant — UI-only.
         previewRef.value?.reshuffleHex(q, r)
         return
     }
-    update(map.value.id, (m): ManualMap => {
-        const variantOverrides = { ...(m.variantOverrides ?? {}) }
-        delete variantOverrides[key]
-        return {
-            ...m,
-            overrides: { ...m.overrides, [key]: activeTerrain.value },
-            variantOverrides,
-        }
-    })
-}
-
-function toOverlayList(v: number | number[] | undefined): number[] {
-    if (v === undefined || v === null) return []
-    return Array.isArray(v) ? [...v] : [v]
-}
-
-function paintOverlay(q: number, r: number) {
-    if (!map.value) return
-    const sel = activeOverlay.value
-    if (!sel) return
-    // POIs are placed free-form via placePoi/removePoi, not by hex.
-    if (sel.category === 'poi') return
-    const key = `${q},${r}`
-    const currentForHex: HexOverlays = map.value.overlays?.[key] ?? {}
-    const currentList = toOverlayList(currentForHex[sel.category] as number | number[] | undefined)
-
-    if (eraseMode.value && currentList.length === 0) return
-
-    update(map.value.id, (m): ManualMap => {
-        const overlays = { ...(m.overlays ?? {}) }
-        const prevAtKey = (overlays[key] ?? {}) as Record<string, number | number[] | undefined>
-        const next: HexOverlays = {}
-        for (const c of OverlayCategoriesForPack[mapPack.value]) {
-            const v = prevAtKey[c]
-            if (v === undefined || v === null) continue
-            next[c] = Array.isArray(v) ? [...v] : [v]
-        }
-        if (eraseMode.value) {
-            delete next[sel.category]
-        } else {
-            const existing = next[sel.category] ?? []
-            const i = existing.indexOf(sel.index)
-            const updated = i >= 0
-                ? existing.filter((_, idx) => idx !== i)
-                : [...existing, sel.index]
-            if (updated.length === 0) delete next[sel.category]
-            else next[sel.category] = updated
-        }
-        if (Object.keys(next).length === 0) {
-            delete overlays[key]
-        } else {
-            overlays[key] = next
-        }
-        return { ...m, overlays }
-    })
-}
-
-function onPaint(q: number, r: number) {
-    if (mode.value === 'overlay') {
-        paintOverlay(q, r)
-    } else {
-        paintTerrain(q, r)
-    }
+    update(map.value.id, (m) => edits.paintTerrain(m, q, r, activeTerrain.value))
 }
 
 function placePoi(x: number, y: number) {
     if (!map.value) return
     const sel = activeOverlay.value
     if (!sel || sel.category !== 'poi' || eraseMode.value) return
-    const poi: FreePoi = { id: crypto.randomUUID(), index: sel.index, x, y }
-    update(map.value.id, (m): ManualMap => ({
-        ...m,
-        freePois: [...(m.freePois ?? []), poi],
-    }))
+    update(map.value.id, (m) => edits.placePoi(m, sel.index, x, y, crypto.randomUUID()))
 }
 
 function removePoi(id: string) {
     if (!map.value) return
-    update(map.value.id, (m): ManualMap => ({
-        ...m,
-        freePois: (m.freePois ?? []).filter((p) => p.id !== id),
-    }))
+    update(map.value.id, (m) => edits.removePoi(m, id))
 }
 
 function migratePois(pois: FreePoi[]) {
-    if (!map.value || !pois.length) return
-    update(map.value.id, (m): ManualMap => {
-        const overlays = m.overlays
-            ? Object.fromEntries(
-                Object.entries(m.overlays)
-                    .map(([k, v]) => {
-                        const { poi: _drop, ...rest } = v as HexOverlays
-                        void _drop
-                        return [k, rest as HexOverlays] as const
-                    })
-                    .filter(([, v]) => Object.keys(v).length > 0)
-            )
-            : undefined
-        return {
-            ...m,
-            freePois: [...(m.freePois ?? []), ...pois],
-            overlays,
-        }
-    })
+    if (!map.value) return
+    update(map.value.id, (m) => edits.migrateLegacyPois(m, pois))
 }
 
 function onVariantsPicked(variants: Record<string, number>) {
     if (!map.value) return
-    update(map.value.id, (m): ManualMap => {
-        const next = { ...(m.variantOverrides ?? {}) }
-        let changed = false
-        for (const [k, v] of Object.entries(variants)) {
-            if (next[k] !== v) {
-                next[k] = v
-                changed = true
-            }
-        }
-        if (!changed) return m
-        return { ...m, variantOverrides: next }
-    })
+    update(map.value.id, (m) => edits.recordVariants(m, variants))
 }
 
 const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
