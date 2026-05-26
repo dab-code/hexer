@@ -1,8 +1,10 @@
 <script setup lang="ts">
 const zoom = defineModel<number>({ required: true })
 
-function zoomIn() { zoom.value = Math.min(4, +(zoom.value * 1.25).toFixed(3)) }
-function zoomOut() { zoom.value = Math.max(0.5, +(zoom.value / 1.25).toFixed(3)) }
+// 0.25 (25%) up to 10× lets users zoom well into pixel-level detail on the
+// worldhex tiles, which carry a lot of fine ink work.
+function zoomIn() { zoom.value = Math.min(10, +(zoom.value * 1.25).toFixed(3)) }
+function zoomOut() { zoom.value = Math.max(0.25, +(zoom.value / 1.25).toFixed(3)) }
 function zoomReset() { zoom.value = 1 }
 </script>
 
