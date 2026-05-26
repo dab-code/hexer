@@ -52,6 +52,18 @@ function selectTool(t: PaintMode) {
   if (isMobile.value && sheetState.value === 'closed') sheetState.value = 'peek'
 }
 
+// Last sub-mode picked under the "Paths" tab; remembered so re-opening the tab
+// reselects the previously active River/Path sub-tab instead of always
+// defaulting to one or the other.
+const lastPathsSubMode = ref<'edge' | 'path'>('edge')
+watch(tool, (t) => {
+  if (t === 'edge' || t === 'path') lastPathsSubMode.value = t
+})
+const isPathsTab = computed(() => tool.value === 'edge' || tool.value === 'path')
+function selectPathsTab() {
+  selectTool(isPathsTab.value ? tool.value : lastPathsSubMode.value)
+}
+
 function toggleErase() {
   eraseMode.value = !eraseMode.value
   if (collapsed.value) collapsed.value = false
@@ -209,35 +221,22 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
         <button
           type="button"
           class="tool-btn"
-          :class="{ 'is-active': tool === 'edge' && !eraseMode }"
-          :title="!isMobile && collapsed ? 'River' : undefined"
-          @click="selectTool('edge')"
-        >
-          <UIcon name="i-heroicons-arrows-right-left" class="text-lg" />
-          <span v-if="!(!isMobile && collapsed)" class="label">River</span>
-        </button>
-        <button
-          type="button"
-          class="tool-btn"
-          :class="{ 'is-active': tool === 'path' && !eraseMode }"
-          :title="!isMobile && collapsed ? 'Path' : undefined"
-          @click="selectTool('path')"
+          :class="{ 'is-active': isPathsTab && !eraseMode }"
+          :title="!isMobile && collapsed ? 'Paths' : undefined"
+          @click="selectPathsTab"
         >
           <UIcon name="i-heroicons-pencil" class="text-lg" />
-          <span v-if="!(!isMobile && collapsed)" class="label">Path</span>
+          <span v-if="!(!isMobile && collapsed)" class="label">Paths</span>
         </button>
         <button
           type="button"
           class="tool-btn erase-btn"
           :class="{ 'is-active': eraseMode }"
-          :title="!isMobile && collapsed ? `Erase · ${eraseScopeLabel}` : undefined"
+          :aria-label="`Erase · ${eraseScopeLabel}`"
+          :title="`Erase · ${eraseScopeLabel}`"
           @click="toggleErase"
         >
           <UIcon name="i-heroicons-no-symbol" class="text-lg" />
-          <span v-if="!(!isMobile && collapsed)" class="label">
-            Erase
-            <span v-if="eraseMode" class="scope">· {{ eraseScopeLabel }}</span>
-          </span>
         </button>
       </div>
 
@@ -266,48 +265,70 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
           :pack="pack"
           :search-query="search"
         />
-        <div v-else-if="tool === 'edge'" class="edge-info">
-          <p class="edge-title">River</p>
-          <p class="edge-hint">
-            Click near a hex border to mark or unmark it. Painted borders render as a thick
-            band shared by both neighbours, like a river running between hexes.
-          </p>
-        </div>
-        <div v-else class="edge-info path-info">
-          <p class="edge-title">Path tool</p>
-          <p class="edge-hint">
-            Tap or click on the map to drop anchor points. The path auto-smooths between
-            anchors and renders as a red dashed trail.
-          </p>
-          <div class="path-actions">
-            <UButton
-              size="sm"
-              color="primary"
-              :disabled="!canFinishPath"
-              icon="i-heroicons-check"
-              @click="emit('finishPath')"
+        <div v-else-if="isPathsTab" class="paths-pane">
+          <div class="paths-subtabs">
+            <button
+              type="button"
+              class="subtab-btn"
+              :class="{ 'is-active': tool === 'edge' }"
+              @click="selectTool('edge')"
             >
-              Finish ({{ props.pathDraftAnchorCount ?? 0 }} anchor{{ (props.pathDraftAnchorCount ?? 0) === 1 ? '' : 's' }})
-            </UButton>
-            <UButton
-              size="sm"
-              variant="soft"
-              :disabled="!hasPathDraft"
-              icon="i-heroicons-arrow-uturn-left"
-              @click="emit('undoPathAnchor')"
+              <UIcon name="i-heroicons-arrows-right-left" class="text-base" />
+              River
+            </button>
+            <button
+              type="button"
+              class="subtab-btn"
+              :class="{ 'is-active': tool === 'path' }"
+              @click="selectTool('path')"
             >
-              Undo last anchor
-            </UButton>
-            <UButton
-              size="sm"
-              variant="soft"
-              color="neutral"
-              :disabled="!hasPathDraft"
-              icon="i-heroicons-x-mark"
-              @click="emit('cancelPath')"
-            >
-              Cancel
-            </UButton>
+              <UIcon name="i-heroicons-pencil" class="text-base" />
+              Path
+            </button>
+          </div>
+          <div v-if="tool === 'edge'" class="edge-info">
+            <p class="edge-title">River</p>
+            <p class="edge-hint">
+              Click near a hex border to mark or unmark it. Painted borders render as a thick
+              band shared by both neighbours, like a river running between hexes.
+            </p>
+          </div>
+          <div v-else class="edge-info path-info">
+            <p class="edge-title">Path tool</p>
+            <p class="edge-hint">
+              Tap or click on the map to drop anchor points. The path auto-smooths between
+              anchors and renders as a red dashed trail.
+            </p>
+            <div class="path-actions">
+              <UButton
+                size="sm"
+                color="primary"
+                :disabled="!canFinishPath"
+                icon="i-heroicons-check"
+                @click="emit('finishPath')"
+              >
+                Finish ({{ props.pathDraftAnchorCount ?? 0 }} anchor{{ (props.pathDraftAnchorCount ?? 0) === 1 ? '' : 's' }})
+              </UButton>
+              <UButton
+                size="sm"
+                variant="soft"
+                :disabled="!hasPathDraft"
+                icon="i-heroicons-arrow-uturn-left"
+                @click="emit('undoPathAnchor')"
+              >
+                Undo last anchor
+              </UButton>
+              <UButton
+                size="sm"
+                variant="soft"
+                color="neutral"
+                :disabled="!hasPathDraft"
+                icon="i-heroicons-x-mark"
+                @click="emit('cancelPath')"
+              >
+                Cancel
+              </UButton>
+            </div>
           </div>
         </div>
       </div>
@@ -523,6 +544,16 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
     justify-content: center;
   }
 
+  .erase-btn {
+    // Pushed to the right edge; icon-only, never grows. Acts as a global modifier
+    // (Erase mode) regardless of which tool is selected, so it sits visually
+    // separated from the main tool tabs.
+    margin-left: auto;
+    flex: 0 0 auto;
+    min-width: 36px;
+    padding: 8px;
+  }
+
   .erase-btn.is-active {
     background: #fee2e2;
     border-color: #fca5a5;
@@ -575,6 +606,52 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
   flex-direction: column;
   gap: 8px;
   margin-top: 12px;
+}
+
+.paths-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.paths-subtabs {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  background: rgba(127, 127, 127, 0.1);
+  border-radius: 8px;
+
+  .subtab-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+
+    &:hover { background: rgba(127, 127, 127, 0.12); }
+
+    &.is-active {
+      background: white;
+      border-color: rgba(0, 0, 0, 0.12);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    :where(html.dark) & {
+      &.is-active {
+        background: #2a2d33;
+        border-color: rgba(255, 255, 255, 0.16);
+        box-shadow: none;
+      }
+    }
+  }
 }
 
 .status-footer {
