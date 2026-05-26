@@ -90,7 +90,7 @@ const filteredDirectionalGroups = computed(() => {
     .map((g) => ({
       pattern: g.pattern,
       entries: g.entries.filter((e) =>
-        g.pattern.toLowerCase().includes(q) || e.direction.toLowerCase().includes(q)
+        g.pattern.toLowerCase().includes(q) || (e.direction?.toLowerCase().includes(q) ?? false)
       ),
     }))
     .filter((g) => g.entries.length > 0)
@@ -149,11 +149,11 @@ const filteredFlatVariants = computed(() => {
             type="button"
             class="variant"
             :class="{ 'is-active': isPicked(e.index) }"
-            :title="`${g.pattern} ${e.direction}`"
+            :title="e.direction ? `${g.pattern} ${e.direction}` : g.pattern"
             @click="pick(e.index)"
           >
-            <img :src="adapter.overlayUrl(activeCategory, e.index)" :alt="`${g.pattern} ${e.direction}`">
-            <span class="variant-label">{{ e.direction }}</span>
+            <img :src="adapter.overlayUrl(activeCategory, e.index)" :alt="e.direction ? `${g.pattern} ${e.direction}` : g.pattern">
+            <span class="variant-label">{{ e.direction ?? 'full' }}</span>
           </button>
         </div>
       </div>

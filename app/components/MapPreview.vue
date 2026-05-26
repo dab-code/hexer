@@ -12,6 +12,8 @@ import {
 } from '~/utils/terrainGenerator'
 import { packAdapterFor } from '~/packs'
 import type { FreePoi, HexOverlays, SavedMap } from '~/types/map'
+import type { OverlaySelection } from '~/components/OverlayPalette.vue'
+import type { PaintMode } from '~/components/EditorSidebar.vue'
 
 const props = defineProps<{
   map: SavedMap
@@ -19,6 +21,10 @@ const props = defineProps<{
   zoom?: number
   activePoiMode?: boolean
   activePoiErase?: boolean
+  activeMode?: PaintMode
+  activeTerrain?: TerrainTypes
+  activeOverlay?: OverlaySelection | null
+  eraseMode?: boolean
 }>()
 
 const BG_COLOR = '#e9e9e9'
@@ -54,6 +60,7 @@ const emit = defineEmits<{
   placePoi: [x: number, y: number]
   removePoi: [id: string]
   migratePois: [pois: FreePoi[]]
+  toggleEdge: [edgeKey: string]
 }>()
 
 const MAX_MAP_WIDTH = 600
@@ -161,17 +168,83 @@ type SvgGroup = any
 
 let drawInstance: SvgNode = null
 let defsInstance: SvgNode = null
+let edgeLayer: SvgGroup = null
 let poiLayer: SvgGroup = null
+let ghostLayer: SvgGroup = null
+let currentHexGhostKey: string | null = null
+let lastPoiGhostPos: { x: number; y: number } | null = null
+let lastEdgeGhostKey: string | null = null
 let hexBoundsSize: { width: number; height: number } | null = null
 let migrationAttempted = false
 const hexGroups = new Map<string, SvgGroup>()
 const hexLookup = new Map<string, CustomHex>()
 const hexClipIds = new Map<string, string>()
+// edge key → the two corner points that compose it, in SVG user-space.
+const edgeCornerLookup = new Map<string, { a: { x: number; y: number }; b: { x: number; y: number } }>()
+
+// River-band stroke between hexes. Sized in SVG user-space; hex "dimensions" is
+// 30 so a 4-unit core leaves the baked hex outline showing on either side. The
+// dark border matches the inked look of the in-hex river tiles.
+const EDGE_RIVER_COLOR = '#517184'
+const EDGE_RIVER_BORDER_COLOR = '#111'
+const EDGE_RIVER_WIDTH = 4
+const EDGE_RIVER_BORDER_WIDTH = EDGE_RIVER_WIDTH + 1.2
+
+// Gentle wobble along the edge — enough to read as hand-drawn but not so much
+// that adjacent edges look disconnected. Pencil texture comes from the SVG
+// turbulence filter (defined in defs at render time).
+const EDGE_SQUIGGLE_AMPLITUDE = 0.35
+const EDGE_SQUIGGLE_SEGMENTS = 18
+const EDGE_PENCIL_FILTER_ID = 'edge-pencil-fuzz'
+
+function roundCoord(n: number): string {
+  return (Math.round(n * 100) / 100).toString()
+}
+
+function edgeKeyFromCorners(a: { x: number; y: number }, b: { x: number; y: number }): string {
+  const ka = `${roundCoord(a.x)},${roundCoord(a.y)}`
+  const kb = `${roundCoord(b.x)},${roundCoord(b.y)}`
+  return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
+}
+
+function hashString(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
+// Build an SVG path that traces a gentle sinusoidal wobble from a to b. Endpoints
+// land exactly on a and b (integer cycle count → sin(2π·n)=0), so adjacent
+// painted edges meet cleanly at the shared corner.
+function squigglePathBetween(
+  edgeKey: string,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): string {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy) || 1
+  const nx = -dy / len
+  const ny = dx / len
+  const cycles = 1 + (hashString(edgeKey) % 2) // 1 or 2 gentle wiggles per edge
+  const phaseShift = ((hashString(edgeKey) >> 3) % 2) === 0 ? 1 : -1
+  let d = `M ${a.x} ${a.y}`
+  for (let i = 1; i < EDGE_SQUIGGLE_SEGMENTS; i++) {
+    const t = i / EDGE_SQUIGGLE_SEGMENTS
+    const off = Math.sin(t * Math.PI * 2 * cycles) * EDGE_SQUIGGLE_AMPLITUDE * phaseShift
+    const px = a.x + dx * t + nx * off
+    const py = a.y + dy * t + ny * off
+    d += ` L ${px} ${py}`
+  }
+  d += ` L ${b.x} ${b.y}`
+  return d
+}
 
 type Snapshot = {
   overrides: Record<string, TerrainTypes>
   overlays: Record<string, HexOverlays>
   freePois: FreePoi[]
+  edges: string[]
 }
 
 let prevSnapshot: Snapshot | null = null
@@ -190,6 +263,7 @@ function captureSnapshot(): Snapshot {
         ]))
       : {},
     freePois: m.freePois ? m.freePois.map((p) => ({ ...p })) : [],
+    edges: m.edges ? [...m.edges] : [],
   }
 }
 
@@ -269,8 +343,8 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
   if (props.editable) {
     group.node.style.cursor = 'crosshair'
     group.node.onmousedown = (e: MouseEvent) => {
-      // POI mode is handled by the SVG-level listener; don't paint hexes underneath.
-      if (props.activePoiMode) return
+      // POI and edge modes are handled by SVG-level listeners — don't paint hexes underneath.
+      if (props.activePoiMode || props.activeMode === 'edge') return
       e.preventDefault()
       isPainting.value = true
       paintedThisDrag.clear()
@@ -278,6 +352,13 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
       emit('paint', hex.q, hex.r)
     }
     group.node.onmouseenter = () => {
+      // Hover preview — POI and edge modes follow cursor via SVG-level mousemove instead.
+      if (
+        props.activeMode !== 'edge' &&
+        !(props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi')
+      ) {
+        renderHexGhost(hex)
+      }
       if (!isPainting.value) return
       const k = `${hex.q},${hex.r}`
       if (paintedThisDrag.has(k)) return
@@ -310,7 +391,13 @@ function render() {
   hexGroups.clear()
   hexLookup.clear()
   hexClipIds.clear()
+  edgeCornerLookup.clear()
+  edgeLayer = null
   poiLayer = null
+  ghostLayer = null
+  currentHexGhostKey = null
+  lastPoiGhostPos = null
+  lastEdgeGhostKey = null
   hexBoundsSize = null
 
   drawInstance = SVG().addTo(mapRef.value)
@@ -332,6 +419,7 @@ function render() {
   drawInstance.node.style.height = 'auto'
   drawInstance.node.style.display = 'block'
   defsInstance = drawInstance.defs()
+  ensureEdgePencilFilter()
   attachSvgPointerHandlers()
 
   hexArray.value.forEach((h) => hexLookup.set(`${h.q},${h.r}`, h))
@@ -349,11 +437,96 @@ function render() {
     renderHex(hex, group)
   })
 
+  // Build the corner lookup for every possible edge in the grid so we can draw
+  // by key without having to find the originating hex again.
+  edgeCornerLookup.clear()
+  for (const hex of hexArray.value) {
+    for (let i = 0; i < 6; i++) {
+      const a = hex.corners[i]!
+      const b = hex.corners[(i + 1) % 6]!
+      const key = edgeKeyFromCorners(a, b)
+      if (!edgeCornerLookup.has(key)) edgeCornerLookup.set(key, { a, b })
+    }
+  }
+
+  edgeLayer = drawInstance.group()
+  renderEdges()
   poiLayer = drawInstance.group()
   renderFreePois()
+  ghostLayer = drawInstance.group()
 
   prevSnapshot = captureSnapshot()
   maybeMigrateLegacyPois()
+}
+
+function clearGhost() {
+  if (ghostLayer) ghostLayer.clear()
+  currentHexGhostKey = null
+  lastPoiGhostPos = null
+  lastEdgeGhostKey = null
+}
+
+function ghostUrlForHexMode(): string | null {
+  if (!props.editable || props.eraseMode) return null
+  const adapter = activeAdapter.value
+  if (props.activeMode === 'terrain') {
+    return getTerrainVariantByIndex(props.activeTerrain ?? props.map.defaultTerrain, 0)
+  }
+  if (props.activeMode === 'overlay' && props.activeOverlay && props.activeOverlay.category !== 'poi') {
+    return adapter.overlayUrl(props.activeOverlay.category, props.activeOverlay.index)
+  }
+  return null
+}
+
+function renderHexGhost(hex: CustomHex) {
+  if (!ghostLayer) return
+  ghostLayer.clear()
+  currentHexGhostKey = null
+  lastPoiGhostPos = null
+  const url = ghostUrlForHexMode()
+  if (!url) return
+  const adapter = activeAdapter.value
+  const xs = hex.corners.map((c) => c.x)
+  const ys = hex.corners.map((c) => c.y)
+  const hexBounds = {
+    x: Math.min(...xs),
+    y: Math.min(...ys),
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys),
+  }
+  const place = adapter.tilePlacement(url, hexBounds)
+  const img = ghostLayer.image(url).size(place.w, place.h).move(place.x, place.y)
+  img.node.style.opacity = '0.5'
+  img.node.setAttribute('pointer-events', 'none')
+  if (adapter.needsPolygonClip) {
+    const clipId = hexClipIds.get(`${hex.q},${hex.r}`)
+    if (clipId) img.attr('clip-path', `url(#${clipId})`)
+  }
+  currentHexGhostKey = `${hex.q},${hex.r}`
+}
+
+function renderPoiGhostAt(svgX: number, svgY: number) {
+  if (!ghostLayer) return
+  ghostLayer.clear()
+  currentHexGhostKey = null
+  if (!props.editable || props.eraseMode) { lastPoiGhostPos = null; return }
+  if (props.activeMode !== 'overlay' || props.activeOverlay?.category !== 'poi') {
+    lastPoiGhostPos = null
+    return
+  }
+  const adapter = activeAdapter.value
+  const url = adapter.overlayUrl('poi', props.activeOverlay.index)
+  const { width: hexW, height: hexH } = getHexBoundsSize()
+  let w = hexW, h = hexH
+  if (adapter.id === 'worldhex') {
+    const native = ensureStampSize(url)
+    if (native) { w = native.w * WH_SCALE; h = native.h * WH_SCALE }
+    else { w = hexW * 0.5; h = hexH * 0.5 }
+  }
+  const img = ghostLayer.image(url).size(w, h).move(svgX - w / 2, svgY - h / 2)
+  img.node.style.opacity = '0.5'
+  img.node.setAttribute('pointer-events', 'none')
+  lastPoiGhostPos = { x: svgX, y: svgY }
 }
 
 function getHexBoundsSize(): { width: number; height: number } {
@@ -367,6 +540,105 @@ function getHexBoundsSize(): { width: number; height: number } {
     height: Math.max(...ys) - Math.min(...ys),
   }
   return hexBoundsSize
+}
+
+// Lazily define a turbulence-based displacement filter once per render. Gives
+// edge strokes a soft pencil-fuzz feel without per-path SVG bloat.
+function ensureEdgePencilFilter() {
+  if (!defsInstance) return
+  // svg.js doesn't model feTurbulence/feDisplacementMap, so drop down to DOM.
+  const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter')
+  filter.setAttribute('id', EDGE_PENCIL_FILTER_ID)
+  filter.setAttribute('x', '-10%')
+  filter.setAttribute('y', '-10%')
+  filter.setAttribute('width', '120%')
+  filter.setAttribute('height', '120%')
+  const turb = document.createElementNS('http://www.w3.org/2000/svg', 'feTurbulence')
+  turb.setAttribute('type', 'fractalNoise')
+  turb.setAttribute('baseFrequency', '0.9')
+  turb.setAttribute('numOctaves', '2')
+  turb.setAttribute('seed', '7')
+  turb.setAttribute('result', 'noise')
+  const disp = document.createElementNS('http://www.w3.org/2000/svg', 'feDisplacementMap')
+  disp.setAttribute('in', 'SourceGraphic')
+  disp.setAttribute('in2', 'noise')
+  disp.setAttribute('scale', '0.9')
+  disp.setAttribute('xChannelSelector', 'R')
+  disp.setAttribute('yChannelSelector', 'G')
+  filter.appendChild(turb)
+  filter.appendChild(disp)
+  defsInstance.node.appendChild(filter)
+}
+
+function drawEdgeStroke(layer: SvgGroup, edgeKey: string, opts?: { opacity?: number }): void {
+  const corners = edgeCornerLookup.get(edgeKey)
+  if (!corners) return
+  const d = squigglePathBetween(edgeKey, corners.a, corners.b)
+  // Outer dark border + colored core, both pushed through the pencil filter so
+  // they share the same organic displacement (and stay visually aligned).
+  const group = layer.group()
+  group.attr('filter', `url(#${EDGE_PENCIL_FILTER_ID})`)
+  const border = group
+    .path(d)
+    .fill('none')
+    .stroke({ color: EDGE_RIVER_BORDER_COLOR, width: EDGE_RIVER_BORDER_WIDTH, linecap: 'round', linejoin: 'round' })
+  border.attr('pointer-events', 'none')
+  const core = group
+    .path(d)
+    .fill('none')
+    .stroke({ color: EDGE_RIVER_COLOR, width: EDGE_RIVER_WIDTH, linecap: 'round', linejoin: 'round' })
+  core.attr('pointer-events', 'none')
+  if (opts?.opacity !== undefined) group.node.style.opacity = String(opts.opacity)
+}
+
+function renderEdges() {
+  if (!edgeLayer) return
+  edgeLayer.clear()
+  const edges = props.map.edges
+  if (!edges || edges.length === 0) return
+  for (const edgeKey of edges) drawEdgeStroke(edgeLayer, edgeKey)
+}
+
+// Find the edge key of the hex side closest to a point inside (or near) the hex.
+function nearestEdgeKey(hex: CustomHex, point: { x: number; y: number }): string | null {
+  let bestKey: string | null = null
+  let bestDist = Infinity
+  for (let i = 0; i < 6; i++) {
+    const a = hex.corners[i]!
+    const b = hex.corners[(i + 1) % 6]!
+    const mx = (a.x + b.x) / 2
+    const my = (a.y + b.y) / 2
+    const dx = point.x - mx
+    const dy = point.y - my
+    const d = dx * dx + dy * dy
+    if (d < bestDist) {
+      bestDist = d
+      bestKey = edgeKeyFromCorners(a, b)
+    }
+  }
+  return bestKey
+}
+
+function hexAtPoint(point: { x: number; y: number }): CustomHex | null {
+  const g = grid.value
+  if (!g) return null
+  const found = g.pointToHex(point)
+  if (!found) return null
+  return hexLookup.get(`${found.q},${found.r}`) ?? null
+}
+
+function renderEdgeGhostAt(svgX: number, svgY: number) {
+  if (!ghostLayer) return
+  ghostLayer.clear()
+  currentHexGhostKey = null
+  lastPoiGhostPos = null
+  if (!props.editable || props.activeMode !== 'edge') { lastEdgeGhostKey = null; return }
+  const hex = hexAtPoint({ x: svgX, y: svgY })
+  if (!hex) { lastEdgeGhostKey = null; return }
+  const key = nearestEdgeKey(hex, { x: svgX, y: svgY })
+  if (!key) { lastEdgeGhostKey = null; return }
+  drawEdgeStroke(ghostLayer, key, { opacity: 0.5 })
+  lastEdgeGhostKey = key
 }
 
 function renderFreePois() {
@@ -406,10 +678,46 @@ function renderFreePois() {
   }
 }
 
+function svgPointFromEvent(svgEl: SVGSVGElement, e: MouseEvent): { x: number; y: number } | null {
+  const pt = svgEl.createSVGPoint()
+  pt.x = e.clientX
+  pt.y = e.clientY
+  const ctm = svgEl.getScreenCTM()
+  if (!ctm) return null
+  const local = pt.matrixTransform(ctm.inverse())
+  return { x: local.x, y: local.y }
+}
+
 function attachSvgPointerHandlers() {
   if (!drawInstance) return
+  const svgEl = drawInstance.node as SVGSVGElement
+  drawInstance.node.onmousemove = (e: MouseEvent) => {
+    if (!props.editable) return
+    const isPoiMode = props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi'
+    if (!isPoiMode && props.activeMode !== 'edge') return
+    const local = svgPointFromEvent(svgEl, e)
+    if (!local) return
+    if (isPoiMode) renderPoiGhostAt(local.x, local.y)
+    else renderEdgeGhostAt(local.x, local.y)
+  }
+  drawInstance.node.onmouseleave = () => clearGhost()
   drawInstance.node.onmousedown = (e: MouseEvent) => {
-    if (!props.editable || !props.activePoiMode) return
+    if (!props.editable) return
+
+    if (props.activeMode === 'edge') {
+      const local = svgPointFromEvent(svgEl, e)
+      if (!local) return
+      const hex = hexAtPoint(local)
+      if (!hex) return
+      const key = nearestEdgeKey(hex, local)
+      if (!key) return
+      e.preventDefault()
+      e.stopPropagation()
+      emit('toggleEdge', key)
+      return
+    }
+
+    if (!props.activePoiMode) return
 
     // Erase: clicking a POI removes it; clicking empty space is a no-op.
     if (props.activePoiErase) {
@@ -424,13 +732,8 @@ function attachSvgPointerHandlers() {
     }
     // Place: convert screen coords to SVG user-space. Stacking on/near an
     // existing POI is allowed so the user can crowd them together.
-    const svgEl = drawInstance.node as SVGSVGElement
-    const pt = svgEl.createSVGPoint()
-    pt.x = e.clientX
-    pt.y = e.clientY
-    const ctm = svgEl.getScreenCTM()
-    if (!ctm) return
-    const local = pt.matrixTransform(ctm.inverse())
+    const local = svgPointFromEvent(svgEl, e)
+    if (!local) return
     e.preventDefault()
     e.stopPropagation()
     emit('placePoi', local.x, local.y)
@@ -492,8 +795,15 @@ function diffAndUpdate() {
   }
 
   if (!sameFreePois(prevSnapshot.freePois, now.freePois)) renderFreePois()
+  if (!sameEdges(prevSnapshot.edges, now.edges)) renderEdges()
 
   prevSnapshot = now
+}
+
+function sameEdges(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
 }
 
 function sameFreePois(a: FreePoi[], b: FreePoi[]): boolean {
@@ -678,12 +988,43 @@ watch(
     () => props.map.overrides,
     () => props.map.overlays,
     () => props.map.freePois,
+    () => props.map.edges,
   ],
   () => diffAndUpdate(),
   { deep: true }
 )
 
 watch(() => props.map.id, () => { migrationAttempted = false })
+
+watch(
+  [
+    () => props.activeMode,
+    () => props.activeTerrain,
+    () => props.activeOverlay,
+    () => props.eraseMode,
+    () => props.editable,
+  ],
+  () => {
+    // When the active mode changes, the kind of ghost being shown can change too
+    // (hex, POI, edge). Clear and let the next mousemove redraw appropriately,
+    // except for hex-style modes where the cursor still sits on a known hex.
+    if (props.activeMode === 'terrain' || props.activeMode === 'overlay') {
+      if (props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi') {
+        if (lastPoiGhostPos) renderPoiGhostAt(lastPoiGhostPos.x, lastPoiGhostPos.y)
+        else clearGhost()
+        return
+      }
+      if (currentHexGhostKey) {
+        const hex = hexLookup.get(currentHexGhostKey)
+        if (hex) renderHexGhost(hex)
+        else clearGhost()
+        return
+      }
+    }
+    clearGhost()
+  },
+  { deep: true }
+)
 
 onMounted(() => {
   window.addEventListener('mouseup', stopPainting)

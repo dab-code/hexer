@@ -47,6 +47,9 @@ const manualMapSchema = z
     overrides: z.record(z.string(), terrainIdSchema),
     overlays: z.record(z.string(), hexOverlaysSchema).optional(),
     freePois: z.array(freePoiSchema).optional(),
+    // Canonical edge keys ("x1,y1|x2,y2" rounded). Identifies edges between
+    // adjacent hexes that have been painted (e.g. for between-hex rivers).
+    edges: z.array(z.string().min(1)).optional(),
     variantOverrides: z
       .record(z.string(), z.number().int().nonnegative())
       .optional(),

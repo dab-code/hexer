@@ -15,7 +15,7 @@ import {
 } from '~/utils/terrainGenerator'
 import type { OverlaySelection } from './OverlayPalette.vue'
 
-export type PaintMode = 'terrain' | 'overlay'
+export type PaintMode = 'terrain' | 'overlay' | 'edge'
 
 const tool = defineModel<PaintMode>('tool', { required: true })
 const eraseMode = defineModel<boolean>('eraseMode', { required: true })
@@ -89,7 +89,7 @@ const overlayLabelText = computed(() => {
   if (entry) {
     const file = overlayVariantFilename(entry)
     const parsed = parseDirectionalFile(file)
-    if (parsed) return `${catLabel} · ${parsed.pattern} ${parsed.direction}`
+    if (parsed) return `${catLabel} · ${parsed.pattern}${parsed.direction ? ` ${parsed.direction}` : ''}`
     return `${catLabel} · ${file.replace(/\.png$/i, '')}`
   }
   return catLabel
@@ -97,6 +97,7 @@ const overlayLabelText = computed(() => {
 
 const eraseScopeLabel = computed(() => {
   if (tool.value === 'terrain') return 'terrain'
+  if (tool.value === 'edge') return 'edge'
   const cat = activeOverlay.value?.category ?? 'river'
   return OverlayCategoryLabels[cat].toLowerCase()
 })
@@ -107,6 +108,7 @@ const statusLabel = computed(() => {
     const group = terrainGroupLabel.value
     return group ? `Painting · ${group} › ${terrainLabelText.value}` : `Painting · ${terrainLabelText.value}`
   }
+  if (tool.value === 'edge') return 'Painting · Edge river'
   return overlayLabelText.value ? `Painting · ${overlayLabelText.value}` : 'Painting · Overlay'
 })
 
@@ -187,6 +189,16 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
         </button>
         <button
           type="button"
+          class="tool-btn"
+          :class="{ 'is-active': tool === 'edge' && !eraseMode }"
+          :title="!isMobile && collapsed ? 'Edge river' : undefined"
+          @click="selectTool('edge')"
+        >
+          <UIcon name="i-heroicons-arrows-right-left" class="text-lg" />
+          <span v-if="!(!isMobile && collapsed)" class="label">Edge</span>
+        </button>
+        <button
+          type="button"
           class="tool-btn erase-btn"
           :class="{ 'is-active': eraseMode }"
           :title="!isMobile && collapsed ? `Erase · ${eraseScopeLabel}` : undefined"
@@ -220,11 +232,18 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
           :search-query="search"
         />
         <OverlayPalette
-          v-else
+          v-else-if="tool === 'overlay'"
           v-model="activeOverlay"
           :pack="pack"
           :search-query="search"
         />
+        <div v-else class="edge-info">
+          <p class="edge-title">Edge rivers</p>
+          <p class="edge-hint">
+            Click near a hex border to mark or unmark it. Painted edges render as a thick
+            yellow band shared by both neighbours, like a river running between hexes.
+          </p>
+        </div>
       </div>
 
       <!-- Status footer -->
@@ -365,6 +384,11 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
   gap: 4px;
   padding: 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  // Desktop has a collapse toggle hanging off the right edge — keep the last
+  // tool button from sliding under it (rail mode is column-layout, no overlap).
+  .editor-shell:not(.is-mobile) &:not(.rail) {
+    padding-right: 26px;
+  }
 
   :where(html.dark) & {
     border-bottom-color: rgba(255, 255, 255, 0.06);
@@ -452,6 +476,24 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
   min-height: 0;
   overflow-y: auto;
   padding: 12px;
+}
+
+.edge-info {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #444;
+
+  .edge-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .edge-hint { color: #666; }
+
+  :where(html.dark) & {
+    color: #e5e7eb;
+    .edge-hint { color: #9ca3af; }
+  }
 }
 
 .status-footer {

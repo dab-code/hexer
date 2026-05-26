@@ -73,6 +73,30 @@ export function eraseOverlay(
   return writeHexOverlays(map, key, next)
 }
 
+export function toggleEdge(map: SavedMap, edgeKey: string): SavedMap {
+  const existing = map.edges ?? []
+  const i = existing.indexOf(edgeKey)
+  const next = i >= 0 ? existing.filter((_, idx) => idx !== i) : [...existing, edgeKey]
+  if (next.length === 0) {
+    const { edges: _drop, ...rest } = map
+    void _drop
+    return rest as SavedMap
+  }
+  return { ...map, edges: next }
+}
+
+export function eraseEdge(map: SavedMap, edgeKey: string): SavedMap {
+  const existing = map.edges
+  if (!existing || existing.indexOf(edgeKey) < 0) return map
+  const next = existing.filter((e) => e !== edgeKey)
+  if (next.length === 0) {
+    const { edges: _drop, ...rest } = map
+    void _drop
+    return rest as SavedMap
+  }
+  return { ...map, edges: next }
+}
+
 export function placePoi(
   map: SavedMap,
   index: number,
