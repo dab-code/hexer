@@ -143,7 +143,9 @@ const statusLabel = computed(() => {
 const hasPathDraft = computed(() => (props.pathDraftAnchorCount ?? 0) > 0)
 const canFinishPath = computed(() => (props.pathDraftAnchorCount ?? 0) >= 2)
 
-const showSearch = computed(() => !eraseMode.value && !collapsed.value)
+// Paths tab has no searchable list — the sub-tab body is action buttons and
+// instructions — so the search input is hidden there.
+const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPathsTab.value)
 </script>
 
 <template>
