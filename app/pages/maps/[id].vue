@@ -39,6 +39,46 @@ const activePoiMode = computed(() =>
 )
 const activePoiErase = computed(() => activePoiMode.value && eraseMode.value)
 
+// Path tool: anchors collected so far for the in-progress trail, transient
+// until the user hits "Finish". Lifted here so the sidebar's action buttons
+// and the canvas-side click handlers share the same source of truth.
+const pathDraft = ref<{ x: number; y: number }[]>([])
+
+function addPathAnchor(x: number, y: number) {
+    pathDraft.value = [...pathDraft.value, { x, y }]
+}
+
+function undoPathAnchor() {
+    if (pathDraft.value.length === 0) return
+    pathDraft.value = pathDraft.value.slice(0, -1)
+}
+
+function cancelPathDraft() {
+    pathDraft.value = []
+}
+
+function finishPathDraft() {
+    if (!map.value) return
+    const pts = pathDraft.value
+    if (pts.length < 2) return
+    const id = crypto.randomUUID()
+    update(map.value.id, (m) => edits.addPath(m, id, pts))
+    pathDraft.value = []
+}
+
+function onRemovePath(id: string) {
+    if (!map.value) return
+    update(map.value.id, (m) => edits.removePath(m, id))
+}
+
+// Switching away from path mode discards an unfinished draft so it doesn't
+// silently linger when the user revisits the tool.
+watch(mode, (m, prev) => {
+    if (prev === 'path' && m !== 'path' && pathDraft.value.length > 0) {
+        pathDraft.value = []
+    }
+})
+
 function downloadJson() {
     if (!map.value) return
     const json = exportToJson(map.value.id)
@@ -183,6 +223,10 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
                     v-model:collapsed="sidebarCollapsed"
                     v-model:sheet-state="sheetState"
                     :pack="mapPack"
+                    :path-draft-anchor-count="pathDraft.length"
+                    @finish-path="finishPathDraft"
+                    @undo-path-anchor="undoPathAnchor"
+                    @cancel-path="cancelPathDraft"
                 />
 
                 <div class="canvas-stage" :class="`sheet-${sheetState}`">
@@ -197,12 +241,15 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
                         :active-terrain="activeTerrain"
                         :active-overlay="activeOverlay"
                         :erase-mode="eraseMode"
+                        :path-draft="pathDraft"
                         @paint="onPaint"
                         @variants-picked="onVariantsPicked"
                         @place-poi="placePoi"
                         @remove-poi="removePoi"
                         @migrate-pois="migratePois"
                         @toggle-edge="onToggleEdge"
+                        @add-path-anchor="addPathAnchor"
+                        @remove-path="onRemovePath"
                     />
                     <CanvasZoomControls v-model="zoom" />
                 </div>

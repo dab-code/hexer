@@ -34,6 +34,15 @@ const freePoiSchema = z.object({
   y: z.number().finite(),
 })
 
+// Free-form pen-tool paths: an ordered list of anchor points in SVG user-space.
+// Rendered as a smoothed dashed line; not associated with hex coordinates.
+const trailPathSchema = z.object({
+  id: z.string().min(1),
+  points: z
+    .array(z.object({ x: z.number().finite(), y: z.number().finite() }))
+    .min(2),
+})
+
 const manualMapSchema = z
   .object({
     id: z.string().min(1),
@@ -50,6 +59,7 @@ const manualMapSchema = z
     // Canonical edge keys ("x1,y1|x2,y2" rounded). Identifies edges between
     // adjacent hexes that have been painted (e.g. for between-hex rivers).
     edges: z.array(z.string().min(1)).optional(),
+    paths: z.array(trailPathSchema).optional(),
     variantOverrides: z
       .record(z.string(), z.number().int().nonnegative())
       .optional(),
@@ -57,6 +67,7 @@ const manualMapSchema = z
 
 export type HexOverlays = z.infer<typeof hexOverlaysSchema>
 export type FreePoi = z.infer<typeof freePoiSchema>
+export type TrailPath = z.infer<typeof trailPathSchema>
 export type ManualMap = z.infer<typeof manualMapSchema>
 export type SavedMap = ManualMap
 

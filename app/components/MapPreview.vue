@@ -25,6 +25,8 @@ const props = defineProps<{
   activeTerrain?: TerrainTypes
   activeOverlay?: OverlaySelection | null
   eraseMode?: boolean
+  // In-progress trail anchors (transient, lives on the route until finished).
+  pathDraft?: { x: number; y: number }[]
 }>()
 
 const BG_COLOR = '#e9e9e9'
@@ -61,6 +63,8 @@ const emit = defineEmits<{
   removePoi: [id: string]
   migratePois: [pois: FreePoi[]]
   toggleEdge: [edgeKey: string]
+  addPathAnchor: [x: number, y: number]
+  removePath: [id: string]
 }>()
 
 const MAX_MAP_WIDTH = 600
@@ -172,8 +176,10 @@ type SvgGroup = any
 let drawInstance: SvgNode = null
 let defsInstance: SvgNode = null
 let edgeLayer: SvgGroup = null
+let pathLayer: SvgGroup = null
 let poiLayer: SvgGroup = null
 let ghostLayer: SvgGroup = null
+let lastPathCursorPos: { x: number; y: number } | null = null
 let currentHexGhostKey: string | null = null
 let lastPoiGhostPos: { x: number; y: number } | null = null
 let lastEdgeGhostKey: string | null = null
@@ -203,6 +209,15 @@ const EDGE_PENCIL_FILTER_ID = 'edge-pencil-fuzz'
 // the corner into the next hex so the river reads as flowing in/out rather
 // than stopping abruptly at the hex vertex.
 const EDGE_RIVER_END_EXTENSION = 3
+
+// Free-form pen-tool paths: dashed red trail, slightly thicker invisible
+// stroke for hit-testing on touch.
+const PATH_TRAIL_COLOR = '#dc2626'
+const PATH_TRAIL_WIDTH = 1.6
+const PATH_TRAIL_DASH = '3 2'
+const PATH_TRAIL_HIT_WIDTH = 10
+const PATH_ANCHOR_RADIUS = 1.6
+const PATH_CATMULL_TENSION = 0.5
 
 function roundCoord(n: number): string {
   return (Math.round(n * 100) / 100).toString()
@@ -252,6 +267,7 @@ type Snapshot = {
   overlays: Record<string, HexOverlays>
   freePois: FreePoi[]
   edges: string[]
+  paths: { id: string; points: { x: number; y: number }[] }[]
 }
 
 let prevSnapshot: Snapshot | null = null
@@ -271,6 +287,7 @@ function captureSnapshot(): Snapshot {
       : {},
     freePois: m.freePois ? m.freePois.map((p) => ({ ...p })) : [],
     edges: m.edges ? [...m.edges] : [],
+    paths: m.paths ? m.paths.map((p) => ({ id: p.id, points: p.points.map((pt) => ({ ...pt })) })) : [],
   }
 }
 
@@ -350,8 +367,8 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
   if (props.editable) {
     group.node.style.cursor = 'crosshair'
     group.node.onmousedown = (e: MouseEvent) => {
-      // POI and edge modes are handled by SVG-level listeners — don't paint hexes underneath.
-      if (props.activePoiMode || props.activeMode === 'edge') return
+      // POI, edge, and path modes are handled by SVG-level listeners — don't paint hexes underneath.
+      if (props.activePoiMode || props.activeMode === 'edge' || props.activeMode === 'path') return
       e.preventDefault()
       isPainting.value = true
       paintedThisDrag.clear()
@@ -359,9 +376,10 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
       emit('paint', hex.q, hex.r)
     }
     group.node.onmouseenter = () => {
-      // Hover preview — POI and edge modes follow cursor via SVG-level mousemove instead.
+      // Hover preview — POI, edge, and path modes follow cursor via SVG-level mousemove instead.
       if (
         props.activeMode !== 'edge' &&
+        props.activeMode !== 'path' &&
         !(props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi')
       ) {
         renderHexGhost(hex)
@@ -400,11 +418,13 @@ function render() {
   hexClipIds.clear()
   edgeCornerLookup.clear()
   edgeLayer = null
+  pathLayer = null
   poiLayer = null
   ghostLayer = null
   currentHexGhostKey = null
   lastPoiGhostPos = null
   lastEdgeGhostKey = null
+  lastPathCursorPos = null
   hexBoundsSize = null
 
   drawInstance = SVG().addTo(mapRef.value)
@@ -464,6 +484,8 @@ function render() {
   // tiny enough to clip the displaced output.
   edgeLayer.attr('filter', `url(#${EDGE_PENCIL_FILTER_ID})`)
   renderEdges()
+  pathLayer = drawInstance.group()
+  renderPaths()
   poiLayer = drawInstance.group()
   renderFreePois()
   ghostLayer = drawInstance.group()
@@ -747,6 +769,99 @@ function renderEdges() {
   core.attr('pointer-events', 'none')
 }
 
+// Catmull-Rom → cubic Bezier smoothing through anchor points. Open path
+// (endpoints land exactly on points[0] and points[last]) — handles use a
+// reflected-neighbour trick at the ends so the curve enters/exits naturally.
+function catmullRomPath(points: { x: number; y: number }[]): string {
+  if (points.length === 0) return ''
+  if (points.length === 1) return `M ${points[0]!.x} ${points[0]!.y}`
+  if (points.length === 2) {
+    return `M ${points[0]!.x} ${points[0]!.y} L ${points[1]!.x} ${points[1]!.y}`
+  }
+  const tension = PATH_CATMULL_TENSION
+  let d = `M ${points[0]!.x} ${points[0]!.y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = i === 0 ? points[0]! : points[i - 1]!
+    const p1 = points[i]!
+    const p2 = points[i + 1]!
+    const p3 = i + 2 < points.length ? points[i + 2]! : points[points.length - 1]!
+    const c1x = p1.x + ((p2.x - p0.x) / 6) * tension
+    const c1y = p1.y + ((p2.y - p0.y) / 6) * tension
+    const c2x = p2.x - ((p3.x - p1.x) / 6) * tension
+    const c2y = p2.y - ((p3.y - p1.y) / 6) * tension
+    d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`
+  }
+  return d
+}
+
+function renderPaths() {
+  if (!pathLayer) return
+  pathLayer.clear()
+
+  // Saved trails. The visible dashed stroke is always pointer-events: none so
+  // it never intercepts clicks meant for the hex underneath. A wide invisible
+  // hit-test stroke is added only when we're actually in path+erase mode, so
+  // trails don't block painting in other modes.
+  const trails = props.map.paths
+  const allowTrailErase =
+    props.editable && props.activeMode === 'path' && props.eraseMode
+  if (trails && trails.length > 0) {
+    for (const trail of trails) {
+      if (!trail.points || trail.points.length < 2) continue
+      const d = catmullRomPath(trail.points)
+      const g = pathLayer.group()
+      g.attr('data-trail-id', trail.id)
+      if (allowTrailErase) {
+        const hit = g.path(d).fill('none').stroke({
+          color: 'transparent',
+          width: PATH_TRAIL_HIT_WIDTH,
+          linecap: 'round',
+          linejoin: 'round',
+        })
+        hit.attr('class', 'trail-hit')
+        hit.attr('pointer-events', 'stroke')
+        g.node.style.cursor = 'pointer'
+      }
+      const visible = g.path(d).fill('none').stroke({
+        color: PATH_TRAIL_COLOR,
+        width: PATH_TRAIL_WIDTH,
+        linecap: 'round',
+        linejoin: 'round',
+        dasharray: PATH_TRAIL_DASH,
+      })
+      visible.attr('pointer-events', 'none')
+    }
+  }
+
+  // In-progress draft: render the smoothed curve through current anchors plus a
+  // ghost segment to the cursor (only follows real mouse movement — touch taps
+  // bypass mousemove on most browsers, so this stays inert on mobile) and the
+  // visible anchor dots so the user can see what they've placed.
+  const draft = props.pathDraft ?? []
+  if (props.editable && props.activeMode === 'path' && draft.length > 0) {
+    const ghostPoints = lastPathCursorPos
+      ? [...draft, lastPathCursorPos]
+      : draft
+    if (ghostPoints.length >= 2) {
+      const d = catmullRomPath(ghostPoints)
+      const draftPath = pathLayer.path(d).fill('none').stroke({
+        color: PATH_TRAIL_COLOR,
+        width: PATH_TRAIL_WIDTH,
+        linecap: 'round',
+        linejoin: 'round',
+        dasharray: PATH_TRAIL_DASH,
+      })
+      draftPath.attr('pointer-events', 'none')
+      draftPath.node.style.opacity = '0.85'
+    }
+    for (const pt of draft) {
+      const dot = pathLayer.circle(PATH_ANCHOR_RADIUS * 2).move(pt.x - PATH_ANCHOR_RADIUS, pt.y - PATH_ANCHOR_RADIUS)
+      dot.fill(PATH_TRAIL_COLOR)
+      dot.attr('pointer-events', 'none')
+    }
+  }
+}
+
 // Find the edge key of the hex side closest to a point inside (or near) the hex.
 function nearestEdgeKey(hex: CustomHex, point: { x: number; y: number }): string | null {
   let bestKey: string | null = null
@@ -842,13 +957,23 @@ function attachSvgPointerHandlers() {
   drawInstance.node.onmousemove = (e: MouseEvent) => {
     if (!props.editable) return
     const isPoiMode = props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi'
-    if (!isPoiMode && props.activeMode !== 'edge') return
+    if (!isPoiMode && props.activeMode !== 'edge' && props.activeMode !== 'path') return
     const local = svgPointFromEvent(svgEl, e)
     if (!local) return
     if (isPoiMode) renderPoiGhostAt(local.x, local.y)
-    else renderEdgeGhostAt(local.x, local.y)
+    else if (props.activeMode === 'edge') renderEdgeGhostAt(local.x, local.y)
+    else if (props.activeMode === 'path') {
+      lastPathCursorPos = { x: local.x, y: local.y }
+      renderPaths()
+    }
   }
-  drawInstance.node.onmouseleave = () => clearGhost()
+  drawInstance.node.onmouseleave = () => {
+    clearGhost()
+    if (props.activeMode === 'path') {
+      lastPathCursorPos = null
+      renderPaths()
+    }
+  }
   drawInstance.node.onmousedown = (e: MouseEvent) => {
     if (!props.editable) return
 
@@ -862,6 +987,28 @@ function attachSvgPointerHandlers() {
       e.preventDefault()
       e.stopPropagation()
       emit('toggleEdge', key)
+      return
+    }
+
+    if (props.activeMode === 'path') {
+      // Erase + path: clicking on a saved trail removes it. Empty-space clicks
+      // in erase mode are a no-op (don't drop anchors while erasing).
+      if (props.eraseMode) {
+        const target = e.target as Element | null
+        const hit = target?.closest?.('[data-trail-id]') as Element | null
+        const id = hit?.getAttribute('data-trail-id')
+        if (id) {
+          e.preventDefault()
+          e.stopPropagation()
+          emit('removePath', id)
+        }
+        return
+      }
+      const local = svgPointFromEvent(svgEl, e)
+      if (!local) return
+      e.preventDefault()
+      e.stopPropagation()
+      emit('addPathAnchor', local.x, local.y)
       return
     }
 
@@ -944,6 +1091,7 @@ function diffAndUpdate() {
 
   if (!sameFreePois(prevSnapshot.freePois, now.freePois)) renderFreePois()
   if (!sameEdges(prevSnapshot.edges, now.edges)) renderEdges()
+  if (!samePaths(prevSnapshot.paths, now.paths)) renderPaths()
 
   prevSnapshot = now
 }
@@ -951,6 +1099,23 @@ function diffAndUpdate() {
 function sameEdges(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+function samePaths(
+  a: { id: string; points: { x: number; y: number }[] }[],
+  b: { id: string; points: { x: number; y: number }[] }[],
+): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const pa = a[i]!
+    const pb = b[i]!
+    if (pa.id !== pb.id) return false
+    if (pa.points.length !== pb.points.length) return false
+    for (let j = 0; j < pa.points.length; j++) {
+      if (pa.points[j]!.x !== pb.points[j]!.x || pa.points[j]!.y !== pb.points[j]!.y) return false
+    }
+  }
   return true
 }
 
@@ -1137,8 +1302,17 @@ watch(
     () => props.map.overlays,
     () => props.map.freePois,
     () => props.map.edges,
+    () => props.map.paths,
   ],
   () => diffAndUpdate(),
+  { deep: true }
+)
+
+// In-progress draft anchors live outside the saved map; re-render the path
+// layer whenever they change so the user sees the curve update as they tap.
+watch(
+  () => props.pathDraft,
+  () => renderPaths(),
   { deep: true }
 )
 
@@ -1156,6 +1330,12 @@ watch(
     // When the active mode changes, the kind of ghost being shown can change too
     // (hex, POI, edge). Clear and let the next mousemove redraw appropriately,
     // except for hex-style modes where the cursor still sits on a known hex.
+    if (props.activeMode !== 'path') {
+      lastPathCursorPos = null
+    }
+    // Path-mode visuals (anchor dots + draft curve) live on the path layer, not
+    // ghostLayer, so re-render that whenever the mode changes.
+    renderPaths()
     if (props.activeMode === 'terrain' || props.activeMode === 'overlay') {
       if (props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi') {
         if (lastPoiGhostPos) renderPoiGhostAt(lastPoiGhostPos.x, lastPoiGhostPos.y)
