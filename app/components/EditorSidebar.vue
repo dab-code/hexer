@@ -497,7 +497,25 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
     gap: 4px;
     overflow-x: auto;
     overflow-y: hidden;
+
+    // Minimalistic horizontal scrollbar: very thin, transparent track, faint
+    // thumb that brightens on hover. Firefox via scrollbar-* properties,
+    // Chromium/Safari via the ::-webkit-scrollbar pseudo-elements.
     scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+    &::-webkit-scrollbar { height: 3px; }
+    &::-webkit-scrollbar-track { background: transparent; }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 3px;
+    }
+    &::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.35); }
+
+    :where(html.dark) & {
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); }
+      &::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
+    }
   }
 
   &.rail {
