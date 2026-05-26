@@ -217,7 +217,10 @@ const PATH_TRAIL_WIDTH = 1.6
 const PATH_TRAIL_DASH = '3 2'
 const PATH_TRAIL_HIT_WIDTH = 10
 const PATH_ANCHOR_RADIUS = 1.6
-const PATH_CATMULL_TENSION = 0.5
+// Catmull-Rom "tension": multiplies the tangent at each anchor. 0 → straight
+// polyline, 1 → standard Catmull-Rom, >1 → exaggerated curves. Bumped from
+// 0.5 to 1.0 for a smoother flowing trail.
+const PATH_CATMULL_TENSION = 1.0
 
 function roundCoord(n: number): string {
   return (Math.round(n * 100) / 100).toString()
