@@ -97,6 +97,27 @@ export function eraseEdge(map: SavedMap, edgeKey: string): SavedMap {
   return { ...map, edges: next }
 }
 
+export function addPath(
+  map: SavedMap,
+  id: string,
+  points: { x: number; y: number }[],
+): SavedMap {
+  if (points.length < 2) return map
+  return { ...map, paths: [...(map.paths ?? []), { id, points: [...points] }] }
+}
+
+export function removePath(map: SavedMap, id: string): SavedMap {
+  const paths = map.paths
+  if (!paths || !paths.some((p) => p.id === id)) return map
+  const next = paths.filter((p) => p.id !== id)
+  if (next.length === 0) {
+    const { paths: _drop, ...rest } = map
+    void _drop
+    return rest as SavedMap
+  }
+  return { ...map, paths: next }
+}
+
 export function placePoi(
   map: SavedMap,
   index: number,

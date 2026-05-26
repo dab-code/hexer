@@ -296,9 +296,13 @@ export const DefaultTerrainForPack: Record<Pack, TerrainTypes> = {
 
 export type OverlayCategory = 'river' | 'path' | 'coast' | 'poi'
 
+// Note: 'river' and 'path' are commented out — rivers are now drawn via the
+// Edge tool (between-hex bands) and paths via the new pen-style Path tool.
+// The categories remain in the schema so existing maps with overlays still
+// load; they just don't surface in the palette.
 export const OverlayCategoriesForPack: Record<Pack, readonly OverlayCategory[]> = {
-    hexes2: ['river', 'path', 'poi'],
-    worldhex: ['river', 'path', 'coast', 'poi'],
+    hexes2: [/* 'river', 'path', */ 'poi'],
+    worldhex: [/* 'river', 'path', */ 'coast', 'poi'],
 }
 
 export const OverlayCategoryLabels: Record<OverlayCategory, string> = {

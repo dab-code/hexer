@@ -15,7 +15,7 @@ import {
 } from '~/utils/terrainGenerator'
 import type { OverlaySelection } from './OverlayPalette.vue'
 
-export type PaintMode = 'terrain' | 'overlay' | 'edge'
+export type PaintMode = 'terrain' | 'overlay' | 'edge' | 'path'
 
 const tool = defineModel<PaintMode>('tool', { required: true })
 const eraseMode = defineModel<boolean>('eraseMode', { required: true })
@@ -25,7 +25,18 @@ const collapsed = defineModel<boolean>('collapsed', { default: false })
 type SheetState = 'closed' | 'peek' | 'expanded'
 const sheetState = defineModel<SheetState>('sheetState', { default: 'closed' })
 
-const props = defineProps<{ pack: Pack }>()
+const props = defineProps<{
+  pack: Pack
+  // Path tool: number of anchors currently dropped on the in-progress trail.
+  // Zero means "not drawing"; controls whether the action buttons are enabled.
+  pathDraftAnchorCount?: number
+}>()
+
+const emit = defineEmits<{
+  finishPath: []
+  cancelPath: []
+  undoPathAnchor: []
+}>()
 
 const search = ref('')
 const isMobile = useMediaQuery('(max-width: 767px)')
@@ -98,6 +109,7 @@ const overlayLabelText = computed(() => {
 const eraseScopeLabel = computed(() => {
   if (tool.value === 'terrain') return 'terrain'
   if (tool.value === 'edge') return 'edge'
+  if (tool.value === 'path') return 'path'
   const cat = activeOverlay.value?.category ?? 'river'
   return OverlayCategoryLabels[cat].toLowerCase()
 })
@@ -109,8 +121,15 @@ const statusLabel = computed(() => {
     return group ? `Painting · ${group} › ${terrainLabelText.value}` : `Painting · ${terrainLabelText.value}`
   }
   if (tool.value === 'edge') return 'Painting · Edge river'
+  if (tool.value === 'path') {
+    const n = props.pathDraftAnchorCount ?? 0
+    return n > 0 ? `Drawing path · ${n} anchor${n === 1 ? '' : 's'}` : 'Path tool'
+  }
   return overlayLabelText.value ? `Painting · ${overlayLabelText.value}` : 'Painting · Overlay'
 })
+
+const hasPathDraft = computed(() => (props.pathDraftAnchorCount ?? 0) > 0)
+const canFinishPath = computed(() => (props.pathDraftAnchorCount ?? 0) >= 2)
 
 const showSearch = computed(() => !eraseMode.value && !collapsed.value)
 </script>
@@ -199,6 +218,16 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
         </button>
         <button
           type="button"
+          class="tool-btn"
+          :class="{ 'is-active': tool === 'path' && !eraseMode }"
+          :title="!isMobile && collapsed ? 'Path' : undefined"
+          @click="selectTool('path')"
+        >
+          <UIcon name="i-heroicons-pencil" class="text-lg" />
+          <span v-if="!(!isMobile && collapsed)" class="label">Path</span>
+        </button>
+        <button
+          type="button"
           class="tool-btn erase-btn"
           :class="{ 'is-active': eraseMode }"
           :title="!isMobile && collapsed ? `Erase · ${eraseScopeLabel}` : undefined"
@@ -237,12 +266,49 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
           :pack="pack"
           :search-query="search"
         />
-        <div v-else class="edge-info">
+        <div v-else-if="tool === 'edge'" class="edge-info">
           <p class="edge-title">Edge rivers</p>
           <p class="edge-hint">
             Click near a hex border to mark or unmark it. Painted edges render as a thick
-            yellow band shared by both neighbours, like a river running between hexes.
+            band shared by both neighbours, like a river running between hexes.
           </p>
+        </div>
+        <div v-else class="edge-info path-info">
+          <p class="edge-title">Path tool</p>
+          <p class="edge-hint">
+            Tap or click on the map to drop anchor points. The path auto-smooths between
+            anchors and renders as a red dashed trail.
+          </p>
+          <div class="path-actions">
+            <UButton
+              size="sm"
+              color="primary"
+              :disabled="!canFinishPath"
+              icon="i-heroicons-check"
+              @click="emit('finishPath')"
+            >
+              Finish ({{ props.pathDraftAnchorCount ?? 0 }} anchor{{ (props.pathDraftAnchorCount ?? 0) === 1 ? '' : 's' }})
+            </UButton>
+            <UButton
+              size="sm"
+              variant="soft"
+              :disabled="!hasPathDraft"
+              icon="i-heroicons-arrow-uturn-left"
+              @click="emit('undoPathAnchor')"
+            >
+              Undo last anchor
+            </UButton>
+            <UButton
+              size="sm"
+              variant="soft"
+              color="neutral"
+              :disabled="!hasPathDraft"
+              icon="i-heroicons-x-mark"
+              @click="emit('cancelPath')"
+            >
+              Cancel
+            </UButton>
+          </div>
         </div>
       </div>
 
@@ -502,6 +568,13 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
     color: #e5e7eb;
     .edge-hint { color: #9ca3af; }
   }
+}
+
+.path-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .status-footer {
