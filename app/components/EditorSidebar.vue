@@ -200,36 +200,41 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
 
       <!-- Tool tabs (always visible, even when collapsed - rendered differently) -->
       <div class="tool-tabs" :class="{ rail: !isMobile && collapsed }">
-        <button
-          type="button"
-          class="tool-btn"
-          :class="{ 'is-active': tool === 'terrain' && !eraseMode }"
-          :title="!isMobile && collapsed ? 'Terrain' : undefined"
-          @click="selectTool('terrain')"
-        >
-          <UIcon name="i-heroicons-squares-2x2" class="text-lg" />
-          <span v-if="!(!isMobile && collapsed)" class="label">Terrain</span>
-        </button>
-        <button
-          type="button"
-          class="tool-btn"
-          :class="{ 'is-active': tool === 'overlay' && !eraseMode }"
-          :title="!isMobile && collapsed ? 'Overlay' : undefined"
-          @click="selectTool('overlay')"
-        >
-          <UIcon name="i-heroicons-sparkles" class="text-lg" />
-          <span v-if="!(!isMobile && collapsed)" class="label">Overlay</span>
-        </button>
-        <button
-          type="button"
-          class="tool-btn"
-          :class="{ 'is-active': isPathsTab && !eraseMode }"
-          :title="!isMobile && collapsed ? 'Paths' : undefined"
-          @click="selectPathsTab"
-        >
-          <UIcon name="i-heroicons-pencil" class="text-lg" />
-          <span v-if="!(!isMobile && collapsed)" class="label">Paths</span>
-        </button>
+        <!-- Scrollable region: the actual mode tabs. When the sidebar is too
+             narrow to fit them all, this region scrolls horizontally behind the
+             fixed Erase button on the right. -->
+        <div class="tool-tabs-scroll">
+          <button
+            type="button"
+            class="tool-btn"
+            :class="{ 'is-active': tool === 'terrain' && !eraseMode }"
+            :title="!isMobile && collapsed ? 'Terrain' : undefined"
+            @click="selectTool('terrain')"
+          >
+            <UIcon name="i-heroicons-squares-2x2" class="text-lg" />
+            <span v-if="!(!isMobile && collapsed)" class="label">Terrain</span>
+          </button>
+          <button
+            type="button"
+            class="tool-btn"
+            :class="{ 'is-active': tool === 'overlay' && !eraseMode }"
+            :title="!isMobile && collapsed ? 'Overlay' : undefined"
+            @click="selectTool('overlay')"
+          >
+            <UIcon name="i-heroicons-sparkles" class="text-lg" />
+            <span v-if="!(!isMobile && collapsed)" class="label">Overlay</span>
+          </button>
+          <button
+            type="button"
+            class="tool-btn"
+            :class="{ 'is-active': isPathsTab && !eraseMode }"
+            :title="!isMobile && collapsed ? 'Paths' : undefined"
+            @click="selectPathsTab"
+          >
+            <UIcon name="i-heroicons-pencil" class="text-lg" />
+            <span v-if="!(!isMobile && collapsed)" class="label">Paths</span>
+          </button>
+        </div>
         <button
           type="button"
           class="tool-btn erase-btn"
@@ -474,15 +479,25 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
   gap: 4px;
   padding: 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  // Allow the row to scroll horizontally when there are too many tool buttons
-  // to fit in the sidebar width — buttons keep their content width.
-  overflow-x: auto;
-  overflow-y: hidden;
+  // The outer container does NOT scroll — the inner .tool-tabs-scroll handles
+  // overflow so the Erase button stays pinned to the right edge.
   flex-wrap: nowrap;
-  scrollbar-width: thin;
+  align-items: center;
 
   :where(html.dark) & {
     border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .tool-tabs-scroll {
+    flex: 1 1 auto;
+    // min-width: 0 is critical — otherwise a flex item refuses to shrink below
+    // its content width and would push the Erase button off-sidebar.
+    min-width: 0;
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
   }
 
   &.rail {
@@ -491,8 +506,13 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
     // last rail button doesn't run into it on the right edge.
     padding: 8px 8px 76px;
     gap: 8px;
-    overflow-x: visible;
-    overflow-y: auto;
+    align-items: stretch;
+
+    // In rail mode the scroll wrapper disappears as a layout element so all
+    // buttons (including Erase) become direct children of the column.
+    .tool-tabs-scroll {
+      display: contents;
+    }
   }
 
   .tool-btn {
@@ -547,13 +567,12 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
   }
 
   .erase-btn {
-    // Pushed to the right edge; icon-only, never grows. Acts as a global modifier
-    // (Erase mode) regardless of which tool is selected, so it sits visually
-    // separated from the main tool tabs.
-    margin-left: auto;
+    // Pinned right (sibling of .tool-tabs-scroll, not inside it) so it stays
+    // visible regardless of how far the tab row has scrolled.
     flex: 0 0 auto;
     min-width: 36px;
     padding: 8px;
+    margin-left: 8px;
   }
 
   .erase-btn.is-active {
