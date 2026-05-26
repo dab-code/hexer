@@ -354,7 +354,8 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
 
 .collapse-toggle {
   position: absolute;
-  top: 8px;
+  // Sit above the status-footer (~32px tall) with breathing room.
+  bottom: 44px;
   right: -12px;
   width: 24px;
   height: 24px;
@@ -384,11 +385,12 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
   gap: 4px;
   padding: 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  // Desktop has a collapse toggle hanging off the right edge — keep the last
-  // tool button from sliding under it (rail mode is column-layout, no overlap).
-  .editor-shell:not(.is-mobile) &:not(.rail) {
-    padding-right: 26px;
-  }
+  // Allow the row to scroll horizontally when there are too many tool buttons
+  // to fit in the sidebar width — buttons keep their content width.
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: thin;
 
   :where(html.dark) & {
     border-bottom-color: rgba(255, 255, 255, 0.06);
@@ -396,15 +398,21 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
 
   &.rail {
     flex-direction: column;
-    padding: 40px 8px 8px;
+    // Bottom padding clears the collapse toggle docked at bottom: 44px so the
+    // last rail button doesn't run into it on the right edge.
+    padding: 8px 8px 76px;
     gap: 8px;
+    overflow-x: visible;
+    overflow-y: auto;
   }
 
   .tool-btn {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex: 1;
+    flex: 1 1 auto;
+    // Don't shrink below the label's intrinsic width — overflow scrolls instead.
+    min-width: max-content;
     justify-content: center;
     padding: 8px 10px;
     border-radius: 8px;
