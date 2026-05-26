@@ -217,10 +217,12 @@ const PATH_TRAIL_WIDTH = 1.6
 const PATH_TRAIL_DASH = '3 2'
 const PATH_TRAIL_HIT_WIDTH = 10
 const PATH_ANCHOR_RADIUS = 1.6
-// Catmull-Rom "tension": multiplies the tangent at each anchor. 0 → straight
-// polyline, 1 → standard Catmull-Rom, >1 → exaggerated curves. Bumped from
-// 0.5 to 1.0 for a smoother flowing trail.
-const PATH_CATMULL_TENSION = 1.0
+// Centripetal Catmull-Rom uses α = 0.5 in its non-uniform parameterization:
+// each knot's parameter spacing equals sqrt(chord length). This shrinks the
+// tangent where two anchors are close together, eliminating the overshoots
+// and self-loops that plague the uniform variant when anchors are unevenly
+// spaced — which is the common case for hand-placed pen-tool points.
+const PATH_CATMULL_ALPHA = 0.5
 
 function roundCoord(n: number): string {
   return (Math.round(n * 100) / 100).toString()
@@ -772,26 +774,41 @@ function renderEdges() {
   core.attr('pointer-events', 'none')
 }
 
-// Catmull-Rom → cubic Bezier smoothing through anchor points. Open path
-// (endpoints land exactly on points[0] and points[last]) — handles use a
-// reflected-neighbour trick at the ends so the curve enters/exits naturally.
+// Centripetal Catmull-Rom → cubic Bezier. Open path; at the first/last segment
+// the neighbour beyond the endpoint is taken to coincide with the endpoint,
+// which makes the curve enter/exit tangent to that segment.
 function catmullRomPath(points: { x: number; y: number }[]): string {
   if (points.length === 0) return ''
   if (points.length === 1) return `M ${points[0]!.x} ${points[0]!.y}`
   if (points.length === 2) {
     return `M ${points[0]!.x} ${points[0]!.y} L ${points[1]!.x} ${points[1]!.y}`
   }
-  const tension = PATH_CATMULL_TENSION
+  const knot = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const d = Math.hypot(a.x - b.x, a.y - b.y)
+    return Math.pow(d, PATH_CATMULL_ALPHA)
+  }
+  const EPS = 1e-6
   let d = `M ${points[0]!.x} ${points[0]!.y}`
   for (let i = 0; i < points.length - 1; i++) {
-    const p0 = i === 0 ? points[0]! : points[i - 1]!
     const p1 = points[i]!
     const p2 = points[i + 1]!
-    const p3 = i + 2 < points.length ? points[i + 2]! : points[points.length - 1]!
-    const c1x = p1.x + ((p2.x - p0.x) / 6) * tension
-    const c1y = p1.y + ((p2.y - p0.y) / 6) * tension
-    const c2x = p2.x - ((p3.x - p1.x) / 6) * tension
-    const c2y = p2.y - ((p3.y - p1.y) / 6) * tension
+    // At the first/last segment, fall back to the endpoint as its own neighbour.
+    // That makes t01 (or t23) zero, and the cubic naturally degenerates to a
+    // straight-tangent start/end with c1 = p1 + (p2 - p1)/3.
+    const p0 = i === 0 ? p1 : points[i - 1]!
+    const p3 = i + 2 < points.length ? points[i + 2]! : p2
+    const t01 = knot(p0, p1)
+    const t12 = knot(p1, p2)
+    const t23 = knot(p2, p3)
+    // Avoid division by zero when consecutive anchors coincide.
+    const denomStart = Math.max(t01 + t12, EPS)
+    const denomEnd = Math.max(t12 + t23, EPS)
+    const k1 = t12 / (3 * denomStart)
+    const k2 = t12 / (3 * denomEnd)
+    const c1x = p1.x + (p2.x - p0.x) * k1
+    const c1y = p1.y + (p2.y - p0.y) * k1
+    const c2x = p2.x - (p3.x - p1.x) * k2
+    const c2y = p2.y - (p3.y - p1.y) * k2
     d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`
   }
   return d
