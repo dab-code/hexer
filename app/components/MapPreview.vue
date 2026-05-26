@@ -65,7 +65,10 @@ const emit = defineEmits<{
 
 const MAX_MAP_WIDTH = 600
 const MAX_MAP_HEIGHT = 600
-const SVG_PADDING = 2
+// Padding needs to clear the widest stroke half-width plus pencil-fuzz
+// displacement — otherwise edge rivers on the top/bottom rows get cropped by
+// the viewBox.
+const SVG_PADDING = 8
 
 const grid = shallowRef<Grid<CustomHex> | null>(null)
 const hexArray = shallowRef<CustomHex[]>([])
@@ -187,7 +190,7 @@ const edgeCornerLookup = new Map<string, { a: { x: number; y: number }; b: { x: 
 // dark border matches the inked look of the in-hex river tiles.
 const EDGE_RIVER_COLOR = '#517184'
 const EDGE_RIVER_BORDER_COLOR = '#111'
-const EDGE_RIVER_WIDTH = 4
+const EDGE_RIVER_WIDTH = 5
 const EDGE_RIVER_BORDER_WIDTH = EDGE_RIVER_WIDTH + 1.2
 
 // Gentle wobble along the edge — enough to read as hand-drawn but not so much
@@ -581,12 +584,12 @@ function drawEdgeStroke(layer: SvgGroup, edgeKey: string, opts?: { opacity?: num
   const border = group
     .path(d)
     .fill('none')
-    .stroke({ color: EDGE_RIVER_BORDER_COLOR, width: EDGE_RIVER_BORDER_WIDTH, linecap: 'round', linejoin: 'round' })
+    .stroke({ color: EDGE_RIVER_BORDER_COLOR, width: EDGE_RIVER_BORDER_WIDTH, linecap: 'butt', linejoin: 'round' })
   border.attr('pointer-events', 'none')
   const core = group
     .path(d)
     .fill('none')
-    .stroke({ color: EDGE_RIVER_COLOR, width: EDGE_RIVER_WIDTH, linecap: 'round', linejoin: 'round' })
+    .stroke({ color: EDGE_RIVER_COLOR, width: EDGE_RIVER_WIDTH, linecap: 'butt', linejoin: 'round' })
   core.attr('pointer-events', 'none')
   if (opts?.opacity !== undefined) group.node.style.opacity = String(opts.opacity)
 }
