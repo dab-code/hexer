@@ -489,10 +489,12 @@ function render() {
   // tiny enough to clip the displaced output.
   edgeLayer.attr('filter', `url(#${EDGE_PENCIL_FILTER_ID})`)
   renderEdges()
-  pathLayer = drawInstance.group()
-  renderPaths()
   poiLayer = drawInstance.group()
   renderFreePois()
+  // Paths render above POIs so trails read continuously over city stamps and
+  // other map markers — matches the convention of road overlays on tabletop maps.
+  pathLayer = drawInstance.group()
+  renderPaths()
   ghostLayer = drawInstance.group()
 
   prevSnapshot = captureSnapshot()
