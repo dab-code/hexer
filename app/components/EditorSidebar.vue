@@ -572,8 +572,32 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
     flex: 0 0 auto;
     min-width: 36px;
     padding: 8px;
-    margin-left: 8px;
+    margin-left: 12px;
+    // Always-on outline so the button reads as a distinct control even when
+    // not active (the .is-active rule below tints both background and border).
+    border-color: rgba(0, 0, 0, 0.15);
+    position: relative;
+
+    // Vertical divider sitting halfway through the gap between the scroll
+    // region and this button. Hidden in rail mode (column layout) where the
+    // column-gap is the natural separator.
+    &::before {
+      content: '';
+      position: absolute;
+      left: -6px;
+      top: 4px;
+      bottom: 4px;
+      width: 1px;
+      background: rgba(0, 0, 0, 0.1);
+    }
+
+    :where(html.dark) & {
+      border-color: rgba(255, 255, 255, 0.18);
+      &::before { background: rgba(255, 255, 255, 0.1); }
+    }
   }
+
+  &.rail .erase-btn::before { display: none; }
 
   .erase-btn.is-active {
     background: #fee2e2;
