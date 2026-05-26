@@ -555,6 +555,9 @@ const WX_EXTRAS: OverlayVariantEntry[] = [
     wxExtra('Title Banner 6 (flex) left.png'),
     wxExtra('Title Banner 6 (flex) mid.png'),
     wxExtra('Title Banner 6 (flex) right.png'),
+    // Mirrored gates so users can flip the arch to suit the path direction.
+    wxExtra('Structures - Gate (sandstone) (mirrored).png'),
+    wxExtra('Structures - Gate (stone) (mirrored).png'),
 ]
 
 export const OverlayVariantsByPack: Record<Pack, Partial<Record<OverlayCategory, OverlayVariantList>>> = {
