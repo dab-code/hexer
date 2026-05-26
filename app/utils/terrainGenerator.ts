@@ -339,6 +339,9 @@ const WX_RIVERS: OverlayVariantEntry[] = [
     wxRiver('Hex - River 11 N.png'), wxRiver('Hex - River 11 NE.png'), wxRiver('Hex - River 11 S.png'), wxRiver('Hex - River 11 SE.png'),
     wxRiver('Hex - River 12 E.png'), wxRiver('Hex - River 12 N.png'),
     wxRiver('Hex - River 13 N.png'), wxRiver('Hex - River 13 NE.png'), wxRiver('Hex - River 13 S.png'), wxRiver('Hex - River 13 SE.png'),
+    // Append-only: stable POI/overlay indices. Non-directional variants (no N/S/etc suffix).
+    wxRiver('Hex - River 4b.png'),
+    wxRiver('Hex - River 14.png'),
 ]
 
 const WX_PATHS: OverlayVariantEntry[] = [
@@ -355,19 +358,20 @@ const WX_PATHS: OverlayVariantEntry[] = [
     wxPath('Hex - Dirt Path 11 N.png'), wxPath('Hex - Dirt Path 11 NE.png'), wxPath('Hex - Dirt Path 11 S.png'), wxPath('Hex - Dirt Path 11 SE.png'),
     wxPath('Hex - Dirt Path 12 E.png'), wxPath('Hex - Dirt Path 12 N.png'),
     wxPath('Hex - Dirt Path 13 N.png'), wxPath('Hex - Dirt Path 13 NE.png'), wxPath('Hex - Dirt Path 13 S.png'), wxPath('Hex - Dirt Path 13 SE.png'),
+    // Append-only: stable POI/overlay indices. Non-directional variants (no N/S/etc suffix).
+    wxPath('Hex - Dirt Path 7b.png'),
 ]
 
 const WX_COASTS: OverlayVariantEntry[] = [
-    wxCoast('Hex - Coast - Beach (big) N.png'), wxCoast('Hex - Coast - Beach (big) NW.png'), wxCoast('Hex - Coast - Beach (big) S.png'), wxCoast('Hex - Coast - Beach (big) SW.png'),
-    wxCoast('Hex - Coast - Beach (medium) NW.png'), wxCoast('Hex - Coast - Beach (medium) SW.png'), wxCoast('Hex - Coast - Beach (medium) W.png'),
-    wxCoast('Hex - Coast - Beach (small) N.png'), wxCoast('Hex - Coast - Beach (small) NW.png'), wxCoast('Hex - Coast - Beach (small) S.png'), wxCoast('Hex - Coast - Beach (small) SW.png'),
+    wxCoast('Hex - Coast - Beach (big) N.png'), wxCoast('Hex - Coast - Beach (big) NE.png'), wxCoast('Hex - Coast - Beach (big) NW.png'), wxCoast('Hex - Coast - Beach (big) S.png'), wxCoast('Hex - Coast - Beach (big) SE.png'), wxCoast('Hex - Coast - Beach (big) SW.png'),
+    wxCoast('Hex - Coast - Beach (medium) E.png'), wxCoast('Hex - Coast - Beach (medium) NE.png'), wxCoast('Hex - Coast - Beach (medium) NW.png'), wxCoast('Hex - Coast - Beach (medium) SE.png'), wxCoast('Hex - Coast - Beach (medium) SW.png'), wxCoast('Hex - Coast - Beach (medium) W.png'),
+    wxCoast('Hex - Coast - Beach (small) N.png'), wxCoast('Hex - Coast - Beach (small) NE.png'), wxCoast('Hex - Coast - Beach (small) NW.png'), wxCoast('Hex - Coast - Beach (small) S.png'), wxCoast('Hex - Coast - Beach (small) SE.png'), wxCoast('Hex - Coast - Beach (small) SW.png'),
 ]
 
 const wxExtra = (file: string): OverlayVariantEntry => ({ folder: wxExtrasFolder, file })
 
 // Extras: free-positioned stamps. Each entry lives in `Extras/`. Order is
 // stable so persisted POI indices remain valid across deploys — append only.
-// Title banners are intentionally omitted; tracked separately for follow-up.
 const WX_EXTRAS: OverlayVariantEntry[] = [
     // Foliage — trees
     wxExtra('Foliage - Tree, conifer 1 (cold).png'),
@@ -505,6 +509,48 @@ const WX_EXTRAS: OverlayVariantEntry[] = [
     wxExtra('Icon - Ruins.png'), wxExtra('Icon - Skull.png'), wxExtra('Icon - Star.png'),
     wxExtra('Icon - Swords.png'), wxExtra('Icon - Tent.png'),
     wxExtra('Icon - Tower.png'), wxExtra('Icon - Tower 2.png'),
+    // Append-only: new entries must go at the end so existing maps' POI indices
+    // keep pointing to the same asset.
+    wxExtra('Buildings - Jetty (mirrored).png'),
+    wxExtra('Buildings - Jetty (boat) (mirrored).png'),
+    wxExtra('Buildings - Jetty (ship) (mirrored).png'),
+    // Bridges
+    wxExtra('Structures - Bridge 1.png'),
+    wxExtra('Structures - Bridge 2.png'),
+    wxExtra('Structures - Bridge 3.png'),
+    // Title banners — banner 1 has flex extensions; 2–6 share the standard set.
+    wxExtra('Title Banner 1 (small).png'),
+    wxExtra('Title Banner 1 (long).png'),
+    wxExtra('Title Banner 1 (flex) left.png'),
+    wxExtra('Title Banner 1 (flex) left extension.png'),
+    wxExtra('Title Banner 1 (flex) mid.png'),
+    wxExtra('Title Banner 1 (flex) right extension.png'),
+    wxExtra('Title Banner 1 (flex) right.png'),
+    wxExtra('Title Banner 2 (small).png'),
+    wxExtra('Title Banner 2 (long).png'),
+    wxExtra('Title Banner 2 (flex) left.png'),
+    wxExtra('Title Banner 2 (flex) mid.png'),
+    wxExtra('Title Banner 2 (flex) right.png'),
+    wxExtra('Title Banner 3 (small).png'),
+    wxExtra('Title Banner 3 (long).png'),
+    wxExtra('Title Banner 3 (flex) left.png'),
+    wxExtra('Title Banner 3 (flex) mid.png'),
+    wxExtra('Title Banner 3 (flex) right.png'),
+    wxExtra('Title Banner 4 (small).png'),
+    wxExtra('Title Banner 4 (long).png'),
+    wxExtra('Title Banner 4 (flex) left.png'),
+    wxExtra('Title Banner 4 (flex) mid.png'),
+    wxExtra('Title Banner 4 (flex) right.png'),
+    wxExtra('Title Banner 5 (small).png'),
+    wxExtra('Title Banner 5 (long).png'),
+    wxExtra('Title Banner 5 (flex) left.png'),
+    wxExtra('Title Banner 5 (flex) mid.png'),
+    wxExtra('Title Banner 5 (flex) right.png'),
+    wxExtra('Title Banner 6 (small).png'),
+    wxExtra('Title Banner 6 (long).png'),
+    wxExtra('Title Banner 6 (flex) left.png'),
+    wxExtra('Title Banner 6 (flex) mid.png'),
+    wxExtra('Title Banner 6 (flex) right.png'),
 ]
 
 export const OverlayVariantsByPack: Record<Pack, Partial<Record<OverlayCategory, OverlayVariantList>>> = {
@@ -568,18 +614,22 @@ export const getOverlayVariants = (pack: Pack, category: OverlayCategory): Overl
 
 export type Direction = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW'
 
-/** Parse a worldhex path/river/coast filename into a (pattern, direction) tuple. */
-export const parseDirectionalFile = (file: string): { pattern: string; direction: Direction } | null => {
-    // matches e.g. "Hex - River 5 NE.png", "Hex - Dirt Path 12 E.png",
-    // "Hex - Coast - Beach (big) NW.png"
-    const m = file.match(/^Hex\s*-\s*(.+?)\s+(N|NE|E|SE|S|SW|W|NW)\.png$/i)
-    if (!m) return null
-    return { pattern: m[1]!.trim(), direction: m[2]!.toUpperCase() as Direction }
+/** Parse a worldhex path/river/coast filename into (pattern, direction). The
+ * direction is null for whole-hex tiles like "Hex - River 14.png" that don't
+ * attach to a single edge. */
+export const parseDirectionalFile = (file: string): { pattern: string; direction: Direction | null } | null => {
+    // With direction: "Hex - River 5 NE.png", "Hex - Coast - Beach (big) NW.png"
+    const withDir = file.match(/^Hex\s*-\s*(.+?)\s+(N|NE|E|SE|S|SW|W|NW)\.png$/i)
+    if (withDir) return { pattern: withDir[1]!.trim(), direction: withDir[2]!.toUpperCase() as Direction }
+    // Whole-hex variant with no direction suffix: "Hex - River 14.png", "Hex - Dirt Path 7b.png"
+    const noDir = file.match(/^Hex\s*-\s*(.+?)\.png$/i)
+    if (noDir) return { pattern: noDir[1]!.trim(), direction: null }
+    return null
 }
 
 export interface OverlayPatternGroup {
     pattern: string                 // e.g. "Dirt Path 5" or "Coast - Beach (big)"
-    entries: { index: number; direction: Direction; file: string }[]
+    entries: { index: number; direction: Direction | null; file: string }[]
 }
 
 export const groupDirectionalOverlays = (pack: Pack, category: OverlayCategory): OverlayPatternGroup[] => {
@@ -594,7 +644,8 @@ export const groupDirectionalOverlays = (pack: Pack, category: OverlayCategory):
         groups.set(parsed.pattern, g)
     })
     // Sort directions in canonical order so the palette doesn't shuffle them.
-    const dirOrder: Direction[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+    // Null (whole-hex, no direction) sorts last within a pattern.
+    const dirOrder: (Direction | null)[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', null]
     for (const g of groups.values()) {
         g.entries.sort((a, b) => dirOrder.indexOf(a.direction) - dirOrder.indexOf(b.direction))
     }
@@ -624,6 +675,7 @@ const extraGroupFor = (file: string): string => {
     if (file.startsWith('Pins - Party')) return 'Pins'
     if (file.startsWith('Banner ')) return 'Banners'
     if (file.startsWith('Pins - Banner')) return 'Banners'
+    if (file.startsWith('Title Banner ')) return 'Title Banners'
     if (file.startsWith('Pins - Pedestal')) return 'Pedestals'
     if (file.startsWith("Pins - You're Here")) return '"You\'re Here"'
     if (file.startsWith('Icon - ')) return 'Icons'

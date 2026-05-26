@@ -110,6 +110,15 @@ function removePoi(id: string) {
     update(map.value.id, (m) => edits.removePoi(m, id))
 }
 
+function onToggleEdge(edgeKey: string) {
+    if (!map.value) return
+    if (eraseMode.value) {
+        update(map.value.id, (m) => edits.eraseEdge(m, edgeKey))
+    } else {
+        update(map.value.id, (m) => edits.toggleEdge(m, edgeKey))
+    }
+}
+
 function migratePois(pois: FreePoi[]) {
     if (!map.value) return
     update(map.value.id, (m) => edits.migrateLegacyPois(m, pois))
@@ -184,13 +193,18 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
                         :zoom="zoom"
                         :active-poi-mode="activePoiMode"
                         :active-poi-erase="activePoiErase"
+                        :active-mode="mode"
+                        :active-terrain="activeTerrain"
+                        :active-overlay="activeOverlay"
+                        :erase-mode="eraseMode"
                         @paint="onPaint"
                         @variants-picked="onVariantsPicked"
                         @place-poi="placePoi"
                         @remove-poi="removePoi"
                         @migrate-pois="migratePois"
+                        @toggle-edge="onToggleEdge"
                     />
-                    <CanvasZoomControls v-if="isEditing" v-model="zoom" />
+                    <CanvasZoomControls v-model="zoom" />
                 </div>
             </div>
         </template>
@@ -267,8 +281,8 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
         height: 100%;
         max-height: none;
         display: flex;
-        align-items: center;
-        justify-content: center;
+        align-items: safe center;
+        justify-content: safe center;
         padding: 16px;
     }
 
