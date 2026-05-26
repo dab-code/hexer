@@ -108,7 +108,7 @@ const overlayLabelText = computed(() => {
 
 const eraseScopeLabel = computed(() => {
   if (tool.value === 'terrain') return 'terrain'
-  if (tool.value === 'edge') return 'edge'
+  if (tool.value === 'edge') return 'river'
   if (tool.value === 'path') return 'path'
   const cat = activeOverlay.value?.category ?? 'river'
   return OverlayCategoryLabels[cat].toLowerCase()
@@ -120,7 +120,7 @@ const statusLabel = computed(() => {
     const group = terrainGroupLabel.value
     return group ? `Painting · ${group} › ${terrainLabelText.value}` : `Painting · ${terrainLabelText.value}`
   }
-  if (tool.value === 'edge') return 'Painting · Edge river'
+  if (tool.value === 'edge') return 'Painting · River'
   if (tool.value === 'path') {
     const n = props.pathDraftAnchorCount ?? 0
     return n > 0 ? `Drawing path · ${n} anchor${n === 1 ? '' : 's'}` : 'Path tool'
@@ -210,11 +210,11 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
           type="button"
           class="tool-btn"
           :class="{ 'is-active': tool === 'edge' && !eraseMode }"
-          :title="!isMobile && collapsed ? 'Edge river' : undefined"
+          :title="!isMobile && collapsed ? 'River' : undefined"
           @click="selectTool('edge')"
         >
           <UIcon name="i-heroicons-arrows-right-left" class="text-lg" />
-          <span v-if="!(!isMobile && collapsed)" class="label">Edge</span>
+          <span v-if="!(!isMobile && collapsed)" class="label">River</span>
         </button>
         <button
           type="button"
@@ -267,9 +267,9 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value)
           :search-query="search"
         />
         <div v-else-if="tool === 'edge'" class="edge-info">
-          <p class="edge-title">Edge rivers</p>
+          <p class="edge-title">River</p>
           <p class="edge-hint">
-            Click near a hex border to mark or unmark it. Painted edges render as a thick
+            Click near a hex border to mark or unmark it. Painted borders render as a thick
             band shared by both neighbours, like a river running between hexes.
           </p>
         </div>
