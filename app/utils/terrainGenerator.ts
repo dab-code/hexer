@@ -302,7 +302,7 @@ export type OverlayCategory = 'river' | 'path' | 'coast' | 'poi'
 // load; they just don't surface in the palette.
 export const OverlayCategoriesForPack: Record<Pack, readonly OverlayCategory[]> = {
     hexes2: [/* 'river', 'path', */ 'poi'],
-    worldhex: [/* 'river', 'path', */ 'coast', 'poi'],
+    worldhex: [/* 'river', 'path', */ 'poi', 'coast'],
 }
 
 export const OverlayCategoryLabels: Record<OverlayCategory, string> = {
