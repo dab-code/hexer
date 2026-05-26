@@ -214,7 +214,9 @@ const EDGE_RIVER_END_EXTENSION = 3
 // stroke for hit-testing on touch.
 const PATH_TRAIL_COLOR = '#dc2626'
 const PATH_TRAIL_WIDTH = 1.6
-const PATH_TRAIL_DASH = '3 2'
+// Dash length / gap length in SVG user units. Bumped the gap so the trail
+// reads more as separated dots than a tight dashed line.
+const PATH_TRAIL_DASH = '3 5'
 const PATH_TRAIL_HIT_WIDTH = 10
 const PATH_ANCHOR_RADIUS = 1.6
 // Centripetal Catmull-Rom uses α = 0.5 in its non-uniform parameterization:
