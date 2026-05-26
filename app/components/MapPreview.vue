@@ -453,6 +453,12 @@ function render() {
   }
 
   edgeLayer = drawInstance.group()
+  // Filter on the layer (not per stroke): the layer's union bbox is large
+  // enough that the percentage-sized filter region has enough absolute room
+  // for the displacement on every painted edge, including thin horizontal
+  // strokes on the top/bottom rows where the per-path bbox was previously
+  // tiny enough to clip the displaced output.
+  edgeLayer.attr('filter', `url(#${EDGE_PENCIL_FILTER_ID})`)
   renderEdges()
   poiLayer = drawInstance.group()
   renderFreePois()
@@ -545,17 +551,21 @@ function getHexBoundsSize(): { width: number; height: number } {
   return hexBoundsSize
 }
 
-// Lazily define a turbulence-based displacement filter once per render. Gives
-// edge strokes a soft pencil-fuzz feel without per-path SVG bloat.
+// Lazily define a turbulence-based displacement filter once per render. We
+// attach it to the river layer (not per-path); the layer's union bbox is large
+// enough that the filter region — sized relative to that bbox — covers the
+// displacement on even the thinnest individual stroke segment.
 function ensureEdgePencilFilter() {
   if (!defsInstance) return
-  // svg.js doesn't model feTurbulence/feDisplacementMap, so drop down to DOM.
   const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter')
   filter.setAttribute('id', EDGE_PENCIL_FILTER_ID)
-  filter.setAttribute('x', '-10%')
-  filter.setAttribute('y', '-10%')
-  filter.setAttribute('width', '120%')
-  filter.setAttribute('height', '120%')
+  // Generous filter region: even a single thin horizontal edge has bbox height
+  // ~6 SVG units, so 100% padding gives ~6 units of absolute room — enough for
+  // the displacement (scale=0.9) plus the squiggle wobble without clipping.
+  filter.setAttribute('x', '-100%')
+  filter.setAttribute('y', '-100%')
+  filter.setAttribute('width', '300%')
+  filter.setAttribute('height', '300%')
   const turb = document.createElementNS('http://www.w3.org/2000/svg', 'feTurbulence')
   turb.setAttribute('type', 'fractalNoise')
   turb.setAttribute('baseFrequency', '0.9')
@@ -573,14 +583,13 @@ function ensureEdgePencilFilter() {
   defsInstance.node.appendChild(filter)
 }
 
+// Per-edge stroke (border + core). Used for the hover ghost — the main render
+// path joins edges into chains so stroke-linejoin can smooth corners.
 function drawEdgeStroke(layer: SvgGroup, edgeKey: string, opts?: { opacity?: number }): void {
   const corners = edgeCornerLookup.get(edgeKey)
   if (!corners) return
   const d = squigglePathBetween(edgeKey, corners.a, corners.b)
-  // Outer dark border + colored core, both pushed through the pencil filter so
-  // they share the same organic displacement (and stay visually aligned).
   const group = layer.group()
-  group.attr('filter', `url(#${EDGE_PENCIL_FILTER_ID})`)
   const border = group
     .path(d)
     .fill('none')
@@ -594,12 +603,117 @@ function drawEdgeStroke(layer: SvgGroup, edgeKey: string, opts?: { opacity?: num
   if (opts?.opacity !== undefined) group.node.style.opacity = String(opts.opacity)
 }
 
+// Returns the L commands tracing a gentle squiggle from a to b (no initial M).
+// Endpoints land exactly on a and b so chained edges meet at shared vertices.
+function squiggleSegmentLCommands(
+  edgeKey: string,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): string {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy) || 1
+  const nx = -dy / len
+  const ny = dx / len
+  const cycles = 1 + (hashString(edgeKey) % 2)
+  const phaseShift = ((hashString(edgeKey) >> 3) % 2) === 0 ? 1 : -1
+  let out = ''
+  for (let i = 1; i < EDGE_SQUIGGLE_SEGMENTS; i++) {
+    const t = i / EDGE_SQUIGGLE_SEGMENTS
+    const off = Math.sin(t * Math.PI * 2 * cycles) * EDGE_SQUIGGLE_AMPLITUDE * phaseShift
+    const px = a.x + dx * t + nx * off
+    const py = a.y + dy * t + ny * off
+    out += ` L ${px} ${py}`
+  }
+  out += ` L ${b.x} ${b.y}`
+  return out
+}
+
+// Greedy chain-walk: turn the painted edge set into a small number of long
+// continuous subpaths, so stroke-linejoin smooths vertices where adjacent
+// edges meet. Branches at a 3-edge junction still result in two subpaths
+// meeting at that vertex (paths don't fork), but joins along chains look clean.
+function buildJoinedRiverPath(edgeKeys: string[]): string {
+  const segments: { a: { x: number; y: number }; b: { x: number; y: number } }[] = []
+  for (const key of edgeKeys) {
+    const c = edgeCornerLookup.get(key)
+    if (c) segments.push({ a: c.a, b: c.b })
+  }
+  if (segments.length === 0) return ''
+
+  const vKey = (p: { x: number; y: number }) => `${roundCoord(p.x)},${roundCoord(p.y)}`
+  const adjacency = new Map<string, number[]>()
+  const addAdj = (k: string, idx: number) => {
+    const arr = adjacency.get(k)
+    if (arr) arr.push(idx)
+    else adjacency.set(k, [idx])
+  }
+  for (let i = 0; i < segments.length; i++) {
+    addAdj(vKey(segments[i]!.a), i)
+    addAdj(vKey(segments[i]!.b), i)
+  }
+
+  const visited = new Set<number>()
+  const subpaths: string[] = []
+
+  const otherEnd = (i: number, atVertex: string) => {
+    const s = segments[i]!
+    return vKey(s.a) === atVertex ? s.b : s.a
+  }
+
+  for (let start = 0; start < segments.length; start++) {
+    if (visited.has(start)) continue
+    visited.add(start)
+    const chain: { x: number; y: number }[] = [segments[start]!.a, segments[start]!.b]
+
+    // Extend forward from chain[chain.length - 1].
+    while (true) {
+      const tail = chain[chain.length - 1]!
+      const adj = adjacency.get(vKey(tail)) ?? []
+      const next = adj.find((i) => !visited.has(i))
+      if (next === undefined) break
+      visited.add(next)
+      chain.push(otherEnd(next, vKey(tail)))
+    }
+    // Extend backward from chain[0].
+    while (true) {
+      const head = chain[0]!
+      const adj = adjacency.get(vKey(head)) ?? []
+      const next = adj.find((i) => !visited.has(i))
+      if (next === undefined) break
+      visited.add(next)
+      chain.unshift(otherEnd(next, vKey(head)))
+    }
+
+    let d = `M ${chain[0]!.x} ${chain[0]!.y}`
+    for (let i = 1; i < chain.length; i++) {
+      const a = chain[i - 1]!
+      const b = chain[i]!
+      d += squiggleSegmentLCommands(edgeKeyFromCorners(a, b), a, b)
+    }
+    subpaths.push(d)
+  }
+
+  return subpaths.join(' ')
+}
+
 function renderEdges() {
   if (!edgeLayer) return
   edgeLayer.clear()
   const edges = props.map.edges
   if (!edges || edges.length === 0) return
-  for (const edgeKey of edges) drawEdgeStroke(edgeLayer, edgeKey)
+  const d = buildJoinedRiverPath(edges)
+  if (!d) return
+  const border = edgeLayer
+    .path(d)
+    .fill('none')
+    .stroke({ color: EDGE_RIVER_BORDER_COLOR, width: EDGE_RIVER_BORDER_WIDTH, linecap: 'butt', linejoin: 'round' })
+  border.attr('pointer-events', 'none')
+  const core = edgeLayer
+    .path(d)
+    .fill('none')
+    .stroke({ color: EDGE_RIVER_COLOR, width: EDGE_RIVER_WIDTH, linecap: 'butt', linejoin: 'round' })
+  core.attr('pointer-events', 'none')
 }
 
 // Find the edge key of the hex side closest to a point inside (or near) the hex.
