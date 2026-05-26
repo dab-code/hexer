@@ -199,6 +199,10 @@ const EDGE_RIVER_BORDER_WIDTH = EDGE_RIVER_WIDTH + 1.2
 const EDGE_SQUIGGLE_AMPLITUDE = 0.35
 const EDGE_SQUIGGLE_SEGMENTS = 18
 const EDGE_PENCIL_FILTER_ID = 'edge-pencil-fuzz'
+// At dangling ends of a river chain, extend the stroke a short distance past
+// the corner into the next hex so the river reads as flowing in/out rather
+// than stopping abruptly at the hex vertex.
+const EDGE_RIVER_END_EXTENSION = 3
 
 function roundCoord(n: number): string {
   return (Math.round(n * 100) / 100).toString()
@@ -685,11 +689,38 @@ function buildJoinedRiverPath(edgeKeys: string[]): string {
       chain.unshift(otherEnd(next, vKey(head)))
     }
 
-    let d = `M ${chain[0]!.x} ${chain[0]!.y}`
+    const startV = chain[0]!
+    const endV = chain[chain.length - 1]!
+    const startIsDangling = (adjacency.get(vKey(startV)) ?? []).length === 1
+    const endIsDangling = (adjacency.get(vKey(endV)) ?? []).length === 1
+    const extendPast = (
+      from: { x: number; y: number },
+      towards: { x: number; y: number },
+    ) => {
+      const dx = from.x - towards.x
+      const dy = from.y - towards.y
+      const len = Math.hypot(dx, dy) || 1
+      return {
+        x: from.x + (dx / len) * EDGE_RIVER_END_EXTENSION,
+        y: from.y + (dy / len) * EDGE_RIVER_END_EXTENSION,
+      }
+    }
+
+    let d: string
+    if (startIsDangling && chain.length >= 2) {
+      const ext = extendPast(startV, chain[1]!)
+      d = `M ${ext.x} ${ext.y} L ${startV.x} ${startV.y}`
+    } else {
+      d = `M ${startV.x} ${startV.y}`
+    }
     for (let i = 1; i < chain.length; i++) {
       const a = chain[i - 1]!
       const b = chain[i]!
       d += squiggleSegmentLCommands(edgeKeyFromCorners(a, b), a, b)
+    }
+    if (endIsDangling && chain.length >= 2) {
+      const ext = extendPast(endV, chain[chain.length - 2]!)
+      d += ` L ${ext.x} ${ext.y}`
     }
     subpaths.push(d)
   }
