@@ -5,6 +5,13 @@ export default defineNuxtConfig({
 
   ssr: false,
 
+  // Static-site output for GitHub Pages. A custom domain serves from the
+  // root, so no baseURL override is needed; the github_pages preset emits
+  // .nojekyll and a 404.html SPA fallback.
+  nitro: {
+    preset: 'github_pages'
+  },
+
   modules: [
     '@nuxt/image',
     '@nuxt/ui',
