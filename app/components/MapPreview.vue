@@ -39,13 +39,18 @@ const BG_COLOR = '#e9e9e9'
 // placement math has moved to the Pack adapter (app/packs).
 // WH_SCALE matches the worldhex tile-art density and is the default for POI
 // stamps. Keep per-asset exceptions here, in one place, so the render paths
-// just ask for a scale and don't grow size math:
-//  - Walls: full-hex tiles reused as stamps; trim them down.
+// just ask for a scale and don't grow size math. These stamps read too large
+// at the default density and get trimmed down:
+//  - Walls: full-hex tiles reused as stamps; half size.
+//  - Tower Fort: oversized fortress art; 60%.
 // (overlayUrl percent-encodes filenames, so decode before matching by name.)
 const WH_SCALE = 60 / 116
 const WALL_SCALE = WH_SCALE * 0.5
+const TOWER_FORT_SCALE = WH_SCALE * 0.6
 function poiStampScale(url: string): number {
-  if (/\/Wall \d/.test(decodeURIComponent(url))) return WALL_SCALE
+  const name = decodeURIComponent(url)
+  if (/\/Wall \d/.test(name)) return WALL_SCALE
+  if (name.includes('Tower Fort')) return TOWER_FORT_SCALE
   return WH_SCALE
 }
 const stampNativeSizes = new Map<string, { w: number; h: number }>()
