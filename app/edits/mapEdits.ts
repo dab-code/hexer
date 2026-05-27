@@ -1,4 +1,4 @@
-import type { FreePoi, HexOverlays, SavedMap } from '~/types/map'
+import type { FreePoi, HexOverlays, Note, SavedMap } from '~/types/map'
 import {
   OverlayCategoriesForPack,
   type OverlayCategory,
@@ -158,6 +158,35 @@ export function migrateLegacyPois(map: SavedMap, pois: FreePoi[]): SavedMap {
     freePois: [...(map.freePois ?? []), ...pois],
     overlays,
   }
+}
+
+export function addNote(map: SavedMap, note: Note): SavedMap {
+  return { ...map, notes: [...(map.notes ?? []), note] }
+}
+
+export function updateNote(
+  map: SavedMap,
+  id: string,
+  patch: { title?: string; body?: string },
+): SavedMap {
+  const notes = map.notes
+  if (!notes || !notes.some((n) => n.id === id)) return map
+  return {
+    ...map,
+    notes: notes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+  }
+}
+
+export function removeNote(map: SavedMap, id: string): SavedMap {
+  const notes = map.notes
+  if (!notes || !notes.some((n) => n.id === id)) return map
+  const next = notes.filter((n) => n.id !== id)
+  if (next.length === 0) {
+    const { notes: _drop, ...rest } = map
+    void _drop
+    return rest as SavedMap
+  }
+  return { ...map, notes: next }
 }
 
 export function recordVariants(

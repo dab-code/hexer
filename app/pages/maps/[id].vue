@@ -31,7 +31,7 @@ watch(mapPack, (pack) => {
 
 const previewRef = ref<{
     reshuffleHex: (q: number, r: number) => void
-    getPngBlob: (targetWidth?: number) => Promise<Blob>
+    getPngBlob: (opts?: { width?: number; includePins?: boolean }) => Promise<Blob>
 } | null>(null)
 
 const activePoiMode = computed(() =>
@@ -79,16 +79,101 @@ watch(mode, (m, prev) => {
     }
 })
 
+// --- Notes ---
+// The open note editor: a new draft pin (create), an existing note being edited,
+// or an existing note shown read-only (view, in Done mode).
+const activeNote = ref<
+    | { kind: 'create'; x: number; y: number }
+    | { kind: 'edit'; id: string }
+    | { kind: 'view'; id: string }
+    | null
+>(null)
+
+// Draft pin position, derived so MapPreview can render the ghost marker.
+const noteDraft = computed(() =>
+    activeNote.value?.kind === 'create'
+        ? { x: activeNote.value.x, y: activeNote.value.y }
+        : null,
+)
+
+// Resolved title/body + editor mode for the panel.
+const activeNoteView = computed(() => {
+    const a = activeNote.value
+    if (!a) return null
+    if (a.kind === 'create') return { mode: 'create' as const, title: '', body: '' }
+    const note = map.value?.notes?.find((n) => n.id === a.id)
+    if (!note) return null
+    return { mode: a.kind, title: note.title ?? '', body: note.body ?? '' }
+})
+
+function onPlaceNote(x: number, y: number) {
+    if (mode.value !== 'notes') return
+    activeNote.value = { kind: 'create', x, y }
+    // On mobile the note drawer replaces the palette sheet.
+    sheetState.value = 'closed'
+}
+
+function onOpenNote(id: string) {
+    activeNote.value = isEditing.value ? { kind: 'edit', id } : { kind: 'view', id }
+    sheetState.value = 'closed'
+}
+
+function onSaveNote(payload: { title: string; body: string }) {
+    if (!map.value) return
+    const a = activeNote.value
+    if (!a) return
+    const fields = { title: payload.title || undefined, body: payload.body || undefined }
+    if (a.kind === 'create') {
+        update(map.value.id, (m) => edits.addNote(m, { id: crypto.randomUUID(), x: a.x, y: a.y, ...fields }))
+    } else if (a.kind === 'edit') {
+        update(map.value.id, (m) => edits.updateNote(m, a.id, fields))
+    }
+    activeNote.value = null
+}
+
+function onDeleteNote() {
+    if (!map.value) return
+    const a = activeNote.value
+    if (a?.kind !== 'edit') return
+    update(map.value.id, (m) => edits.removeNote(m, a.id))
+    activeNote.value = null
+}
+
+function closeNote() {
+    activeNote.value = null
+}
+
+// Leaving the Notes tool (or edit mode) discards an open create-draft so a blank
+// pin never lingers. Existing-note panels close too.
+watch(mode, (m) => {
+    if (m !== 'notes' && activeNote.value) activeNote.value = null
+})
+watch(isEditing, () => {
+    if (activeNote.value) activeNote.value = null
+})
+
 function downloadJson() {
     if (!map.value) return
     const json = exportToJson(map.value.id)
     downloadBlob(new Blob([json], { type: 'application/json' }), `${sanitizeFilename(map.value.name)}.hexer.json`)
 }
 
-async function downloadPng() {
+// When the map has pins, ask whether to include them; otherwise export instantly.
+const showPngDialog = ref(false)
+
+function requestDownloadPng() {
+    if (map.value?.notes?.length) {
+        showPngDialog.value = true
+    } else {
+        downloadPng(true)
+    }
+}
+
+async function downloadPng(includePins: boolean) {
+    showPngDialog.value = false
     if (!map.value || !previewRef.value) return
     try {
-        const blob = await previewRef.value.getPngBlob()
+        const blob = await previewRef.value.getPngBlob({ includePins })
         downloadBlob(blob, `${sanitizeFilename(map.value.name)}.png`)
     } catch (error: any) {
         toast.add({ title: 'PNG export failed', description: error?.message, color: 'error' })
@@ -171,7 +256,7 @@ function onVariantsPicked(variants: Record<string, number>) {
 
 const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
     [
-        { label: 'Download PNG', icon: 'i-heroicons-photo', onSelect: downloadPng },
+        { label: 'Download PNG', icon: 'i-heroicons-photo', onSelect: requestDownloadPng },
         { label: 'Download JSON', icon: 'i-heroicons-arrow-down-tray', onSelect: downloadJson },
         { label: 'Copy JSON', icon: 'i-heroicons-clipboard', onSelect: copyJson },
     ],
@@ -242,6 +327,7 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
                         :active-overlay="activeOverlay"
                         :erase-mode="eraseMode"
                         :path-draft="pathDraft"
+                        :note-draft="noteDraft"
                         @paint="onPaint"
                         @variants-picked="onVariantsPicked"
                         @place-poi="placePoi"
@@ -250,10 +336,41 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
                         @toggle-edge="onToggleEdge"
                         @add-path-anchor="addPathAnchor"
                         @remove-path="onRemovePath"
+                        @place-note="onPlaceNote"
+                        @open-note="onOpenNote"
                     />
                     <CanvasZoomControls v-model="zoom" />
                 </div>
+
+                <NoteEditor
+                    v-if="activeNoteView"
+                    :mode="activeNoteView.mode"
+                    :title="activeNoteView.title"
+                    :body="activeNoteView.body"
+                    @save="onSaveNote"
+                    @remove="onDeleteNote"
+                    @close="closeNote"
+                />
             </div>
+
+            <UModal v-model:open="showPngDialog" title="Export PNG">
+                <template #body>
+                    <p class="text-sm text-gray-500">
+                        This map has note pins. Include them in the exported image? Pin markers
+                        are shown, but note text is never exported.
+                    </p>
+                </template>
+                <template #footer>
+                    <div class="flex justify-end gap-2 w-full">
+                        <UButton variant="soft" color="neutral" @click="downloadPng(false)">
+                            Hide pins
+                        </UButton>
+                        <UButton icon="i-heroicons-map-pin" @click="downloadPng(true)">
+                            Show pins
+                        </UButton>
+                    </div>
+                </template>
+            </UModal>
         </template>
     </div>
 </template>
@@ -336,16 +453,6 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
     /* Prevent the flex container from shrinking the zoomed map back to fit. */
     :deep(.map-wrapper) {
         flex-shrink: 0;
-    }
-
-    /* On mobile, lift the zoom widget above the bottom sheet when it's open. */
-    @media (max-width: 767px) {
-        &.sheet-peek :deep(.zoom-widget) {
-            bottom: calc(35vh + 12px);
-        }
-        &.sheet-expanded :deep(.zoom-widget) {
-            display: none;
-        }
     }
 }
 </style>

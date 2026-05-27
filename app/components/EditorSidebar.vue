@@ -15,7 +15,7 @@ import {
 } from '~/utils/terrainGenerator'
 import type { OverlaySelection } from './OverlayPalette.vue'
 
-export type PaintMode = 'terrain' | 'overlay' | 'edge' | 'path'
+export type PaintMode = 'terrain' | 'overlay' | 'edge' | 'path' | 'notes'
 
 const tool = defineModel<PaintMode>('tool', { required: true })
 const eraseMode = defineModel<boolean>('eraseMode', { required: true })
@@ -122,6 +122,7 @@ const eraseScopeLabel = computed(() => {
   if (tool.value === 'terrain') return 'terrain'
   if (tool.value === 'edge') return 'river'
   if (tool.value === 'path') return 'path'
+  if (tool.value === 'notes') return 'note'
   const cat = activeOverlay.value?.category ?? 'river'
   return OverlayCategoryLabels[cat].toLowerCase()
 })
@@ -137,6 +138,7 @@ const statusLabel = computed(() => {
     const n = props.pathDraftAnchorCount ?? 0
     return n > 0 ? `Drawing path · ${n} anchor${n === 1 ? '' : 's'}` : 'Path tool'
   }
+  if (tool.value === 'notes') return 'Notes · tap the map to drop a pin'
   return overlayLabelText.value ? `Painting · ${overlayLabelText.value}` : 'Painting · Overlay'
 })
 
@@ -145,7 +147,7 @@ const canFinishPath = computed(() => (props.pathDraftAnchorCount ?? 0) >= 2)
 
 // Paths tab has no searchable list — the sub-tab body is action buttons and
 // instructions — so the search input is hidden there.
-const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPathsTab.value)
+const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPathsTab.value && tool.value !== 'notes')
 </script>
 
 <template>
@@ -234,8 +236,19 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
             <UIcon name="i-heroicons-pencil" class="text-lg" />
             <span v-if="!(!isMobile && collapsed)" class="label">Paths</span>
           </button>
+          <button
+            type="button"
+            class="tool-btn"
+            :class="{ 'is-active': tool === 'notes' && !eraseMode }"
+            :title="!isMobile && collapsed ? 'Notes' : undefined"
+            @click="selectTool('notes')"
+          >
+            <UIcon name="i-heroicons-map-pin" class="text-lg" />
+            <span v-if="!(!isMobile && collapsed)" class="label">Notes</span>
+          </button>
         </div>
         <button
+          v-if="tool !== 'notes'"
           type="button"
           class="tool-btn erase-btn"
           :class="{ 'is-active': eraseMode }"
@@ -338,12 +351,19 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
             </div>
           </div>
         </div>
+        <div v-else-if="tool === 'notes'" class="edge-info">
+          <p class="edge-title">Notes</p>
+          <p class="edge-hint">
+            Tap or click anywhere on the map to drop a pin, then write your note. Tap an
+            existing pin to read, edit, or delete it.
+          </p>
+        </div>
       </div>
 
       <!-- Status footer -->
       <div v-if="!(!isMobile && collapsed)" class="status-footer" :class="{ 'is-erasing': eraseMode }">
         <UIcon
-          :name="eraseMode ? 'i-heroicons-no-symbol' : tool === 'terrain' ? 'i-heroicons-squares-2x2' : 'i-heroicons-sparkles'"
+          :name="eraseMode ? 'i-heroicons-no-symbol' : tool === 'terrain' ? 'i-heroicons-squares-2x2' : tool === 'notes' ? 'i-heroicons-map-pin' : 'i-heroicons-sparkles'"
           class="text-base"
         />
         <span class="status-text" :title="statusLabel">{{ statusLabel }}</span>

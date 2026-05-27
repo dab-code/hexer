@@ -11,7 +11,7 @@ import {
   wrapIndex,
 } from '~/utils/terrainGenerator'
 import { packAdapterFor } from '~/packs'
-import type { FreePoi, HexOverlays, SavedMap } from '~/types/map'
+import type { FreePoi, HexOverlays, Note, SavedMap } from '~/types/map'
 import type { OverlaySelection } from '~/components/OverlayPalette.vue'
 import type { PaintMode } from '~/components/EditorSidebar.vue'
 
@@ -27,6 +27,8 @@ const props = defineProps<{
   eraseMode?: boolean
   // In-progress trail anchors (transient, lives on the route until finished).
   pathDraft?: { x: number; y: number }[]
+  // Transient draft pin while composing a new note; rendered as a ghost marker.
+  noteDraft?: { x: number; y: number } | null
 }>()
 
 const BG_COLOR = '#e9e9e9'
@@ -65,6 +67,8 @@ const emit = defineEmits<{
   toggleEdge: [edgeKey: string]
   addPathAnchor: [x: number, y: number]
   removePath: [id: string]
+  placeNote: [x: number, y: number]
+  openNote: [id: string]
 }>()
 
 const MAX_MAP_WIDTH = 600
@@ -163,6 +167,11 @@ const neighbourOffsets = [
 
 const activeAdapter = computed(() => packAdapterFor(packForOrientation(props.map.hexOrientation)))
 
+// Pins are clickable (full opacity) when reading is the intent: in view mode
+// (not editable) or while the Notes tool is active. Under any painting tool
+// they render ghosted and let clicks fall through to the hex beneath.
+const notesInteractive = computed(() => !props.editable || props.activeMode === 'notes')
+
 function centerOf(h: { corners: { x: number; y: number }[] }) {
   let sx = 0, sy = 0
   for (const c of h.corners) { sx += c.x; sy += c.y }
@@ -178,6 +187,7 @@ let defsInstance: SvgNode = null
 let edgeLayer: SvgGroup = null
 let pathLayer: SvgGroup = null
 let poiLayer: SvgGroup = null
+let notesLayer: SvgGroup = null
 let ghostLayer: SvgGroup = null
 let lastPathCursorPos: { x: number; y: number } | null = null
 let currentHexGhostKey: string | null = null
@@ -194,6 +204,12 @@ const edgeCornerLookup = new Map<string, { a: { x: number; y: number }; b: { x: 
 // River-band stroke between hexes. Sized in SVG user-space; hex "dimensions" is
 // 30 so a 4-unit core leaves the baked hex outline showing on either side. The
 // dark border matches the inked look of the in-hex river tiles.
+// Note pins use the worldhex "small red pin" extra asset so they match the map's
+// art style. URL is encoded per path segment to match the export DPI-upgrade
+// pattern (so exports swap in the crisp 300-DPI WebP). The native art is 18×24.
+const NOTE_PIN_URL = '/media/worldhex/Assets%20-%2072%20DPI/Extras/Pins%20-%20Pin%2C%20red.png'
+const NOTE_PIN_ASPECT = 18 / 24
+
 const EDGE_RIVER_COLOR = '#517184'
 const EDGE_RIVER_BORDER_COLOR = '#111'
 const EDGE_RIVER_WIDTH = 5
@@ -275,6 +291,7 @@ type Snapshot = {
   freePois: FreePoi[]
   edges: string[]
   paths: { id: string; points: { x: number; y: number }[] }[]
+  notes: Note[]
 }
 
 let prevSnapshot: Snapshot | null = null
@@ -295,6 +312,7 @@ function captureSnapshot(): Snapshot {
     freePois: m.freePois ? m.freePois.map((p) => ({ ...p })) : [],
     edges: m.edges ? [...m.edges] : [],
     paths: m.paths ? m.paths.map((p) => ({ id: p.id, points: p.points.map((pt) => ({ ...pt })) })) : [],
+    notes: m.notes ? m.notes.map((n) => ({ ...n })) : [],
   }
 }
 
@@ -374,8 +392,8 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
   if (props.editable) {
     group.node.style.cursor = 'crosshair'
     group.node.onmousedown = (e: MouseEvent) => {
-      // POI, edge, and path modes are handled by SVG-level listeners — don't paint hexes underneath.
-      if (props.activePoiMode || props.activeMode === 'edge' || props.activeMode === 'path') return
+      // POI, edge, path, and notes modes are handled by SVG-level listeners — don't paint hexes underneath.
+      if (props.activePoiMode || props.activeMode === 'edge' || props.activeMode === 'path' || props.activeMode === 'notes') return
       e.preventDefault()
       isPainting.value = true
       paintedThisDrag.clear()
@@ -387,6 +405,7 @@ function renderHex(hex: CustomHex, group: SvgGroup) {
       if (
         props.activeMode !== 'edge' &&
         props.activeMode !== 'path' &&
+        props.activeMode !== 'notes' &&
         !(props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi')
       ) {
         renderHexGhost(hex)
@@ -427,6 +446,7 @@ function render() {
   edgeLayer = null
   pathLayer = null
   poiLayer = null
+  notesLayer = null
   ghostLayer = null
   currentHexGhostKey = null
   lastPoiGhostPos = null
@@ -497,6 +517,11 @@ function render() {
   // other map markers — matches the convention of road overlays on tabletop maps.
   pathLayer = drawInstance.group()
   renderPaths()
+  // Note pins sit above everything else so markers stay readable over tiles,
+  // POI stamps, and trails.
+  notesLayer = drawInstance.group()
+  notesLayer.attr('class', 'notes-layer')
+  renderNotes()
   ghostLayer = drawInstance.group()
 
   prevSnapshot = captureSnapshot()
@@ -965,6 +990,51 @@ function renderFreePois() {
   }
 }
 
+function renderNotes() {
+  if (!notesLayer) return
+  notesLayer.clear()
+  const notes = props.map.notes ?? []
+  const draft = props.noteDraft
+  if (!notes.length && !draft) return
+
+  const { height: hexH } = getHexBoundsSize()
+  // Pin height ≈ half a hex; width follows the asset's aspect. The tip is the
+  // bottom-centre of the art, so anchor there on the note point.
+  const h = Math.max(12, hexH * 0.5)
+  const w = h * NOTE_PIN_ASPECT
+  const interactive = notesInteractive.value
+  const showTitle = props.activeMode === 'notes'
+
+  const drawPin = (
+    x: number,
+    y: number,
+    opts: { id?: string; title?: string; ghost?: boolean },
+  ) => {
+    const img = notesLayer!.image(NOTE_PIN_URL).size(w, h).move(x - w / 2, y - h)
+
+    const node = img.node
+    node.setAttribute('class', 'note-pin')
+    if (opts.id) node.setAttribute('data-note-id', opts.id)
+    // Ghost pins (draft, or any pin while a painting tool is active) are dimmed
+    // and let clicks pass through to the hex below.
+    const dimmed = opts.ghost || !interactive
+    node.style.opacity = dimmed ? '0.5' : '1'
+    node.setAttribute('pointer-events', !opts.ghost && interactive ? 'bounding-box' : 'none')
+    if (!opts.ghost && interactive) node.style.cursor = 'pointer'
+    // Native hover tooltip with the title, only while the Notes tool is active.
+    if (showTitle && opts.title) {
+      const t = document.createElementNS('http://www.w3.org/2000/svg', 'title')
+      t.textContent = opts.title
+      node.appendChild(t)
+    }
+  }
+
+  for (const note of notes) {
+    drawPin(note.x, note.y, { id: note.id, title: note.title?.trim() || undefined })
+  }
+  if (draft) drawPin(draft.x, draft.y, { ghost: true })
+}
+
 function svgPointFromEvent(svgEl: SVGSVGElement, e: MouseEvent): { x: number; y: number } | null {
   const pt = svgEl.createSVGPoint()
   pt.x = e.clientX
@@ -999,7 +1069,32 @@ function attachSvgPointerHandlers() {
     }
   }
   drawInstance.node.onmousedown = (e: MouseEvent) => {
+    // Note pins are clickable to open even in view mode (read-only), so handle
+    // them before the editable guard. Ghosted pins have pointer-events: none,
+    // so the hit-test only matches when pins are interactive.
+    if (notesInteractive.value) {
+      const target = e.target as Element | null
+      const hit = target?.closest?.('.note-pin') as Element | null
+      const id = hit?.getAttribute('data-note-id')
+      if (id) {
+        e.preventDefault()
+        e.stopPropagation()
+        emit('openNote', id)
+        return
+      }
+    }
+
     if (!props.editable) return
+
+    // Notes tool: clicking empty space drops a draft pin at that point.
+    if (props.activeMode === 'notes') {
+      const local = svgPointFromEvent(svgEl, e)
+      if (!local) return
+      e.preventDefault()
+      e.stopPropagation()
+      emit('placeNote', local.x, local.y)
+      return
+    }
 
     if (props.activeMode === 'edge') {
       const local = svgPointFromEvent(svgEl, e)
@@ -1116,6 +1211,7 @@ function diffAndUpdate() {
   if (!sameFreePois(prevSnapshot.freePois, now.freePois)) renderFreePois()
   if (!sameEdges(prevSnapshot.edges, now.edges)) renderEdges()
   if (!samePaths(prevSnapshot.paths, now.paths)) renderPaths()
+  if (!sameNotes(prevSnapshot.notes, now.notes)) renderNotes()
 
   prevSnapshot = now
 }
@@ -1138,6 +1234,18 @@ function samePaths(
     if (pa.points.length !== pb.points.length) return false
     for (let j = 0; j < pa.points.length; j++) {
       if (pa.points[j]!.x !== pb.points[j]!.x || pa.points[j]!.y !== pb.points[j]!.y) return false
+    }
+  }
+  return true
+}
+
+function sameNotes(a: Note[], b: Note[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const na = a[i]!
+    const nb = b[i]!
+    if (na.id !== nb.id || na.x !== nb.x || na.y !== nb.y || na.title !== nb.title || na.body !== nb.body) {
+      return false
     }
   }
   return true
@@ -1227,17 +1335,17 @@ function defaultExportWidth(): number {
   return 8192
 }
 
-async function getPngBlob(targetWidth?: number): Promise<Blob> {
+async function getPngBlob(opts?: { width?: number; includePins?: boolean }): Promise<Blob> {
   if (!mapRef.value) throw new Error('Map not rendered yet')
   const original = mapRef.value.querySelector('svg')
   if (!original) throw new Error('SVG element not found')
 
   const vb = original.viewBox.baseVal
   const aspect = vb && vb.width > 0 ? vb.height / vb.width : 1
-  const outW = Math.max(1, Math.round(targetWidth ?? defaultExportWidth()))
+  const outW = Math.max(1, Math.round(opts?.width ?? defaultExportWidth()))
   const outH = Math.max(1, Math.round(outW * aspect))
 
-  const svg = await getSvgString({ width: outW, height: outH })
+  const svg = await getSvgString({ width: outW, height: outH, includePins: opts?.includePins })
   const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
   try {
     const img = await loadImage(svgUrl)
@@ -1257,12 +1365,25 @@ async function getPngBlob(targetWidth?: number): Promise<Blob> {
   }
 }
 
-async function getSvgString(opts?: { width?: number; height?: number }): Promise<string> {
+async function getSvgString(
+  opts?: { width?: number; height?: number; includePins?: boolean },
+): Promise<string> {
   if (!mapRef.value) throw new Error('Map not rendered yet')
   const original = mapRef.value.querySelector('svg')
   if (!original) throw new Error('SVG element not found')
 
   const clone = original.cloneNode(true) as SVGSVGElement
+
+  // Note pins: drop the whole layer when hiding pins; otherwise keep the markers
+  // but strip any <title> tooltips so the export shows pins, never note text.
+  if (opts?.includePins === false) {
+    clone.querySelector('.notes-layer')?.remove()
+  } else {
+    // Strip title tooltips (note text) and any transient draft pin (no id).
+    clone.querySelectorAll('.notes-layer title').forEach((t) => t.remove())
+    clone.querySelectorAll('.notes-layer .note-pin:not([data-note-id])').forEach((p) => p.remove())
+  }
+
   const images = Array.from(clone.querySelectorAll('image'))
 
   // For worldhex exports, swap the 72-DPI PNG URLs to their 300-DPI WebP
@@ -1327,6 +1448,7 @@ watch(
     () => props.map.freePois,
     () => props.map.edges,
     () => props.map.paths,
+    () => props.map.notes,
   ],
   () => diffAndUpdate(),
   { deep: true }
@@ -1337,6 +1459,14 @@ watch(
 watch(
   () => props.pathDraft,
   () => renderPaths(),
+  { deep: true }
+)
+
+// The draft pin lives outside the saved map; re-render the notes layer when it
+// appears or moves so the ghost marker tracks the click point.
+watch(
+  () => props.noteDraft,
+  () => renderNotes(),
   { deep: true }
 )
 
@@ -1360,6 +1490,9 @@ watch(
     // Path-mode visuals (anchor dots + draft curve) live on the path layer, not
     // ghostLayer, so re-render that whenever the mode changes.
     renderPaths()
+    // Pin interactivity (ghosted vs clickable) and the hover tooltip depend on
+    // the active mode and editable flag, so repaint the notes layer too.
+    renderNotes()
     if (props.activeMode === 'terrain' || props.activeMode === 'overlay') {
       if (props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi') {
         if (lastPoiGhostPos) renderPoiGhostAt(lastPoiGhostPos.x, lastPoiGhostPos.y)

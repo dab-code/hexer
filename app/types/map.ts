@@ -43,6 +43,21 @@ const trailPathSchema = z.object({
     .min(2),
 })
 
+// Map pins carrying freeform notes. Placed at a free SVG-user-space point like
+// freePois (not snapped to a hex). At least one of title/body must be non-empty
+// — the editor never persists a wholly empty note.
+const noteSchema = z
+  .object({
+    id: z.string().min(1),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    title: z.string().optional(),
+    body: z.string().optional(),
+  })
+  .refine((n) => Boolean(n.title?.trim() || n.body?.trim()), {
+    message: 'A note needs a title or body',
+  })
+
 const manualMapSchema = z
   .object({
     id: z.string().min(1),
@@ -60,6 +75,7 @@ const manualMapSchema = z
     // adjacent hexes that have been painted (e.g. for between-hex rivers).
     edges: z.array(z.string().min(1)).optional(),
     paths: z.array(trailPathSchema).optional(),
+    notes: z.array(noteSchema).optional(),
     variantOverrides: z
       .record(z.string(), z.number().int().nonnegative())
       .optional(),
@@ -68,6 +84,7 @@ const manualMapSchema = z
 export type HexOverlays = z.infer<typeof hexOverlaysSchema>
 export type FreePoi = z.infer<typeof freePoiSchema>
 export type TrailPath = z.infer<typeof trailPathSchema>
+export type Note = z.infer<typeof noteSchema>
 export type ManualMap = z.infer<typeof manualMapSchema>
 export type SavedMap = ManualMap
 
