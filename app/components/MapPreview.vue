@@ -67,6 +67,18 @@ function ensureStampSize(url: string): { w: number; h: number } | null {
   return null
 }
 
+// Display size for a placed or ghosted POI stamp. Worldhex stamps size to their
+// native pixels at the per-asset scale; hexes2 POIs keep the hex bounding box.
+// Until a worldhex stamp's native size is measured, fall back to half the hex
+// bounds so it isn't visually overwhelming on first paint.
+function poiStampSize(url: string, hexW: number, hexH: number): { w: number; h: number } {
+  if (activeAdapter.value.id !== 'worldhex') return { w: hexW, h: hexH }
+  const native = ensureStampSize(url)
+  if (!native) return { w: hexW * 0.5, h: hexH * 0.5 }
+  const scale = poiStampScale(url)
+  return { w: native.w * scale, h: native.h * scale }
+}
+
 const emit = defineEmits<{
   hexClick: [hex: CustomHex]
   paint: [q: number, r: number]
@@ -598,13 +610,7 @@ function renderPoiGhostAt(svgX: number, svgY: number) {
   const adapter = activeAdapter.value
   const url = adapter.overlayUrl('poi', props.activeOverlay.index)
   const { width: hexW, height: hexH } = getHexBoundsSize()
-  let w = hexW, h = hexH
-  if (adapter.id === 'worldhex') {
-    const native = ensureStampSize(url)
-    const scale = poiStampScale(url)
-    if (native) { w = native.w * scale; h = native.h * scale }
-    else { w = hexW * 0.5; h = hexH * 0.5 }
-  }
+  const { w, h } = poiStampSize(url, hexW, hexH)
   const img = ghostLayer.image(url).size(w, h).move(svgX - w / 2, svgY - h / 2)
   img.node.style.opacity = '0.5'
   img.node.setAttribute('pointer-events', 'none')
@@ -975,23 +981,7 @@ function renderFreePois() {
   const adapter = activeAdapter.value
   for (const poi of pois) {
     const url = adapter.overlayUrl('poi', poi.index)
-    // Worldhex extras are small native-sized PNGs; size by their natural
-    // dimensions scaled to match the worldhex tile-art density. hexes2 POIs
-    // keep their existing hex-bounding-box size for back-compat.
-    let w = hexW, h = hexH
-    if (adapter.id === 'worldhex') {
-      const native = ensureStampSize(url)
-      const scale = poiStampScale(url)
-      if (native) {
-        w = native.w * scale
-        h = native.h * scale
-      } else {
-        // Until we know native size, render at a sensible default smaller than
-        // hex bounds so the stamp isn't visually overwhelming on first paint.
-        w = hexW * 0.5
-        h = hexH * 0.5
-      }
-    }
+    const { w, h } = poiStampSize(url, hexW, hexH)
     const img = poiLayer
       .image(url)
       .size(w, h)
