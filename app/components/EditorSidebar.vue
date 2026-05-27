@@ -410,7 +410,8 @@ const showSearch = computed(() => !eraseMode.value && !collapsed.value && !isPat
 
 .fab {
   position: fixed;
-  bottom: 16px;
+  // Clear the device's home indicator / browser bottom bar on mobile.
+  bottom: calc(16px + env(safe-area-inset-bottom));
   right: 16px;
   width: 56px;
   height: 56px;

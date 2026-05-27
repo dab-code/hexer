@@ -61,11 +61,13 @@ function zoomReset() { zoom.value = 1 }
   }
 }
 
-/* On mobile the FAB lives bottom-right at ~16+56=72px tall; lift the zoom
-   above it so taps actually land on the zoom controls. */
+/* On mobile the FAB lives bottom-right, occupying 16px + 56px tall (plus the
+   device's safe-area inset). Lift the zoom clear above it — matching the same
+   inset — so taps land on the zoom controls and neither hides under the home
+   indicator / browser bottom bar. */
 @media (max-width: 767px) {
   .zoom-widget {
-    bottom: 88px;
+    bottom: calc(96px + env(safe-area-inset-bottom));
   }
 }
 
