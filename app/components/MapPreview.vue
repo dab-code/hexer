@@ -7,6 +7,7 @@ import {
   TerrainVariants,
   getTerrainKeyByIndex,
   getTerrainVariantByIndex,
+  isWorldhex72Only,
   packForOrientation,
   wrapIndex,
 } from '~/utils/terrainGenerator'
@@ -1318,6 +1319,9 @@ function getImageHref(img: SVGImageElement): string {
 
 async function fetchAsDataUri(url: string): Promise<string> {
   const res = await fetch(url)
+  // fetch() resolves (doesn't throw) on 404s, so a missing asset would silently
+  // become a junk data URI and vanish from the export — guard explicitly.
+  if (!res.ok) throw new Error(`fetch ${res.status} for ${url}`)
   const blob = await res.blob()
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -1404,21 +1408,39 @@ async function getSvgString(
   const upgradeUrlForExport = (href: string): string => {
     if (activeAdapter.value.id !== 'worldhex') return href
     if (!href.startsWith('/media/worldhex/')) return href
+    // 72-DPI-only assets (walls, tower fort, etc.) have no 300-DPI WebP twin;
+    // upgrading would point at a missing file and drop them from the export.
+    const file = decodeURIComponent(href.split('/').pop() ?? '')
+    if (isWorldhex72Only(file)) return href
     return href
       .replace('/media/worldhex/Assets%20-%2072%20DPI', '/media/worldhex/Assets%20-%20300%20DPI')
       .replace(/\.png$/i, '.webp')
   }
 
-  const exportHrefs = images.map((img) => upgradeUrlForExport(getImageHref(img)))
-  const uniqueHrefs = Array.from(new Set(exportHrefs.filter(Boolean)))
+  // Embed each image as a data URI, keyed by its on-screen href. Prefer the
+  // 300-DPI upgrade, but if that asset is missing (no WebP twin yet, or the
+  // 72-only list drifts) fall back to the 72-DPI source so it never vanishes.
+  const uniqueHrefs = Array.from(new Set(images.map(getImageHref).filter(Boolean)))
   const dataUris = new Map<string, string>()
   await Promise.all(
-    uniqueHrefs.map(async (href) => dataUris.set(href, await fetchAsDataUri(href)))
+    uniqueHrefs.map(async (href) => {
+      const upgraded = upgradeUrlForExport(href)
+      if (upgraded !== href) {
+        const uri = await fetchAsDataUri(upgraded).catch(() => null)
+        if (uri) {
+          dataUris.set(href, uri)
+          return
+        }
+        console.warn(`[export] no 300-DPI asset, exporting 72-DPI source: ${href}`)
+      }
+      const uri = await fetchAsDataUri(href).catch(() => null)
+      if (uri) dataUris.set(href, uri)
+      else console.warn(`[export] failed to embed image: ${href}`)
+    })
   )
 
-  images.forEach((img, i) => {
-    const exportHref = exportHrefs[i]!
-    const uri = dataUris.get(exportHref)
+  images.forEach((img) => {
+    const uri = dataUris.get(getImageHref(img))
     if (!uri) return
     img.setAttributeNS(XLINK_NS, 'href', uri)
     img.setAttribute('href', uri)

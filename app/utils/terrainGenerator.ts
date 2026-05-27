@@ -13,9 +13,9 @@ export type Pack = 'hexes2' | 'worldhex'
 export const packForOrientation = (o: Orientation): Pack =>
     o === Orientation.FLAT ? 'worldhex' : 'hexes2'
 
-// Worldhex asset roots. Editor uses 72 DPI; export switches to 300 DPI WebP.
+// Worldhex asset root (72 DPI). PNG export upgrades these to 300-DPI WebP at
+// fetch time — see MapPreview's upgradeUrlForExport.
 const WORLDHEX_ROOT_72 = 'worldhex/Assets - 72 DPI'
-const WORLDHEX_ROOT_300 = 'worldhex/Assets - 300 DPI'
 
 const encodeSegments = (path: string): string =>
     path.split('/').map(encodeURIComponent).join('/')
@@ -54,6 +54,11 @@ const WX_72_ONLY: ReadonlySet<string> = new Set<string>([
     'Structures - Standing Stone (stone).png',
     'Vehicles - Shipwreck.png',
 ])
+
+// True for worldhex assets that ship as 72-DPI PNG only (no 300-DPI WebP twin).
+// Export paths must keep the 72-DPI source for these — upgrading to WebP would
+// point at a missing file. `file` is the bare filename (decoded, no path).
+export const isWorldhex72Only = (file: string): boolean => WX_72_ONLY.has(file)
 
 // ----------------------------------------------------------------------------
 // Terrain types
@@ -826,26 +831,3 @@ export const getTerrainKeyByIndex = (index: number): keyof typeof TerrainTypes =
     return TerrainTypes[index] as keyof typeof TerrainTypes
 }
 
-// 300-DPI export source path (for PNG export). Falls back to 72-DPI URL for
-// non-worldhex assets.
-export const getTerrainExportUrl = (terrainType: TerrainTypes, variantIndex: number): string => {
-    const v = resolveVariantPack(terrainType)
-    if (v.pack !== 'worldhex') return getTerrainVariantByIndex(terrainType, variantIndex)
-    const png = v.files[wrapIndex(variantIndex, v.files.length)]!
-    // New hexes have no 300-DPI WebP twin yet — export the 72-DPI PNG.
-    if (WX_72_ONLY.has(png)) return getTerrainVariantByIndex(terrainType, variantIndex)
-    const file = png.replace(/\.png$/i, '.webp')
-    return buildAssetUrl('worldhex', WORLDHEX_ROOT_300, file)
-}
-
-export const getOverlayExportUrl = (category: OverlayCategory, index: number, pack: Pack = 'hexes2'): string => {
-    if (pack !== 'worldhex') return getOverlayPath(category, index, pack)
-    const v = resolveOverlayList(pack, category)
-    if (!v || !v.files.length) return ''
-    const { folder, file } = resolveOverlayEntry(v, index)
-    // New 72-DPI-only Extras have no 300-DPI webp twin; export the 72-DPI PNG.
-    if (WX_72_ONLY.has(file)) return buildAssetUrl('worldhex', folder, file)
-    const webp = file.replace(/\.png$/i, '.webp')
-    const folder300 = folder.replace(WORLDHEX_ROOT_72, WORLDHEX_ROOT_300)
-    return buildAssetUrl('worldhex', folder300, webp)
-}

@@ -2,10 +2,8 @@ import {
   DefaultTerrainForPack,
   OverlayCategoriesForPack,
   OverlayVariantsByPack,
-  TerrainTypes,
-  getOverlayExportUrl,
+  type TerrainTypes,
   getOverlayPath,
-  getTerrainExportUrl,
   getTerrainVariantByIndex,
   groupDirectionalOverlays,
   groupExtras,
@@ -59,9 +57,7 @@ export interface PackAdapter {
   // tiles fit exactly so they're clipped; worldhex tiles intentionally bleed.
   readonly needsPolygonClip: boolean
   terrainUrl(type: TerrainTypes, variantIndex: number): string
-  terrainExportUrl(type: TerrainTypes, variantIndex: number): string
   overlayUrl(category: OverlayCategory, index: number): string
-  overlayExportUrl(category: OverlayCategory, index: number): string
   terrainGroups(): ReturnType<typeof terrainGroupsForPack>
   overlayPaletteShape(category: OverlayCategory): OverlayPaletteShape
   // Where to place a tile image inside its hex bounds. `asset` is the tile URL
@@ -129,9 +125,7 @@ function makeAdapter(id: Pack, flags: AdapterFlags): PackAdapter {
     drawsOutline: flags.drawsOutline,
     needsPolygonClip: flags.needsPolygonClip,
     terrainUrl: (t, n) => getTerrainVariantByIndex(t, n),
-    terrainExportUrl: (t, n) => getTerrainExportUrl(t, n),
     overlayUrl: (c, n) => getOverlayPath(c, n, id),
-    overlayExportUrl: (c, n) => getOverlayExportUrl(c, n, id),
     terrainGroups: () => terrainGroupsForPack(id),
     overlayPaletteShape(category) {
       if (id === 'worldhex') {
