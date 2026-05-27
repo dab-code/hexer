@@ -37,7 +37,17 @@ const BG_COLOR = '#e9e9e9'
 // worldhex hex-tile-art density (60 SVG units per ~116 source-pixel polygon).
 // Constant lives here because only renderFreePois needs it; the hex tile
 // placement math has moved to the Pack adapter (app/packs).
+// WH_SCALE matches the worldhex tile-art density and is the default for POI
+// stamps. Keep per-asset exceptions here, in one place, so the render paths
+// just ask for a scale and don't grow size math:
+//  - Walls: full-hex tiles reused as stamps; trim them down.
+// (overlayUrl percent-encodes filenames, so decode before matching by name.)
 const WH_SCALE = 60 / 116
+const WALL_SCALE = WH_SCALE * 0.5
+function poiStampScale(url: string): number {
+  if (/\/Wall \d/.test(decodeURIComponent(url))) return WALL_SCALE
+  return WH_SCALE
+}
 const stampNativeSizes = new Map<string, { w: number; h: number }>()
 const stampPendingLoads = new Set<string>()
 function ensureStampSize(url: string): { w: number; h: number } | null {
@@ -204,11 +214,13 @@ const edgeCornerLookup = new Map<string, { a: { x: number; y: number }; b: { x: 
 // River-band stroke between hexes. Sized in SVG user-space; hex "dimensions" is
 // 30 so a 4-unit core leaves the baked hex outline showing on either side. The
 // dark border matches the inked look of the in-hex river tiles.
-// Note pins use the worldhex "small red pin" extra asset so they match the map's
-// art style. URL is encoded per path segment to match the export DPI-upgrade
-// pattern (so exports swap in the crisp 300-DPI WebP). The native art is 18×24.
-const NOTE_PIN_URL = '/media/worldhex/Assets%20-%2072%20DPI/Extras/Pins%20-%20Pin%2C%20red.png'
-const NOTE_PIN_ASPECT = 18 / 24
+// Note pins use the worldhex "large white pin" extra asset so they match the map's
+// art style. The large variant carries enough native pixels (35×48) to stay crisp
+// at the on-screen render size; the small pin looked blurry scaled up. URL is
+// encoded per path segment to match the export DPI-upgrade pattern (so exports
+// swap in the crisp 300-DPI WebP automatically).
+const NOTE_PIN_URL = '/media/worldhex/Assets%20-%2072%20DPI/Extras/Pins%20-%20Pin%2C%20white%20(large).png'
+const NOTE_PIN_ASPECT = 35 / 48
 
 const EDGE_RIVER_COLOR = '#517184'
 const EDGE_RIVER_BORDER_COLOR = '#111'
@@ -589,7 +601,8 @@ function renderPoiGhostAt(svgX: number, svgY: number) {
   let w = hexW, h = hexH
   if (adapter.id === 'worldhex') {
     const native = ensureStampSize(url)
-    if (native) { w = native.w * WH_SCALE; h = native.h * WH_SCALE }
+    const scale = poiStampScale(url)
+    if (native) { w = native.w * scale; h = native.h * scale }
     else { w = hexW * 0.5; h = hexH * 0.5 }
   }
   const img = ghostLayer.image(url).size(w, h).move(svgX - w / 2, svgY - h / 2)
@@ -968,9 +981,10 @@ function renderFreePois() {
     let w = hexW, h = hexH
     if (adapter.id === 'worldhex') {
       const native = ensureStampSize(url)
+      const scale = poiStampScale(url)
       if (native) {
-        w = native.w * WH_SCALE
-        h = native.h * WH_SCALE
+        w = native.w * scale
+        h = native.h * scale
       } else {
         // Until we know native size, render at a sensible default smaller than
         // hex bounds so the stamp isn't visually overwhelming on first paint.
@@ -984,9 +998,13 @@ function renderFreePois() {
       .move(poi.x - w / 2, poi.y - h / 2)
     img.node.setAttribute('data-poi-id', poi.id)
     img.node.setAttribute('class', 'free-poi')
-    // bounding-box so transparent PNG pixels still register clicks for hit-testing
-    img.node.setAttribute('pointer-events', 'bounding-box')
-    if (props.editable) img.node.style.cursor = 'pointer'
+    // Only the erase tool needs to hit-test POIs; bounding-box catches clicks on
+    // transparent pixels too. In every other mode POIs must stay pointer-transparent
+    // so they don't sit above the hexes and steal hover/paint events — otherwise the
+    // tile ghost lags behind on hexes crowded with stamps.
+    const erasable = props.editable && props.activePoiErase
+    img.node.setAttribute('pointer-events', erasable ? 'bounding-box' : 'none')
+    if (erasable) img.node.style.cursor = 'pointer'
   }
 }
 
@@ -1478,6 +1496,7 @@ watch(
     () => props.activeTerrain,
     () => props.activeOverlay,
     () => props.eraseMode,
+    () => props.activePoiErase,
     () => props.editable,
   ],
   () => {
@@ -1493,6 +1512,9 @@ watch(
     // Pin interactivity (ghosted vs clickable) and the hover tooltip depend on
     // the active mode and editable flag, so repaint the notes layer too.
     renderNotes()
+    // POI pointer-events depend on whether the erase tool is active, so repaint
+    // the POI layer when the mode/erase flag changes.
+    renderFreePois()
     if (props.activeMode === 'terrain' || props.activeMode === 'overlay') {
       if (props.activeMode === 'overlay' && props.activeOverlay?.category === 'poi') {
         if (lastPoiGhostPos) renderPoiGhostAt(lastPoiGhostPos.x, lastPoiGhostPos.y)

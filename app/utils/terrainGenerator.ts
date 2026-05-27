@@ -20,6 +20,41 @@ const WORLDHEX_ROOT_300 = 'worldhex/Assets - 300 DPI'
 const encodeSegments = (path: string): string =>
     path.split('/').map(encodeURIComponent).join('/')
 
+// Worldhex assets that ship as 72-DPI PNG only (no 300-DPI WebP twin yet). PNG
+// export falls back to the 72-DPI source for these instead of a missing WebP.
+// Keyed by bare filename — unique across the worldhex hex + Extras sets.
+const WX_72_ONLY: ReadonlySet<string> = new Set<string>([
+    // New hexes (root folder)
+    'Flat Hex - Anvil Rock.png',
+    'Flat Hex - Forest, Mushroom (red) 1.png',
+    'Flat Hex - Forest, Mushroom (red) 2.png',
+    'Flat Hex - Forest, Mushroom (white) 1.png',
+    'Flat Hex - Forest, Mushroom (white) 2.png',
+    'Flat Hex - Forest, Stone Circle (lush).png',
+    'Flat Hex - Hills (Ice Spikes) 1.png',
+    'Flat Hex - Hills (Ice Spikes) 3.png',
+    'Flat Hex - Hills (Onyx Spikes) 1.png',
+    'Flat Hex - Hills (Onyx Spikes) 3.png',
+    // New Extras (POIs) — incl. Wall segments (placed as free stamps)
+    'Wall 1.png', 'Wall 2.png', 'Wall 3.png', 'Wall 4.png', 'Wall 5.png',
+    'Wall 6.png', 'Wall 7.png', 'Wall 8.png', 'Wall 9.png',
+    'Buildings - Farmland Cowpen (lush).png',
+    'Buildings - Lighthouse (off).png', 'Buildings - Lighthouse (on).png',
+    'Buildings - Observatory.png', 'Buildings - Orchard.png', 'Buildings - Tower Fort.png',
+    'Foliage - Mushroom 1 (red).png', 'Foliage - Mushroom 1 (white).png',
+    'Foliage - Mushroom 2 (red).png', 'Foliage - Mushroom 2 (white).png',
+    'Foliage - Mushroom 3 (red).png', 'Foliage - Mushroom 3 (white).png',
+    'Foliage - Mushroom 4 (red).png', 'Foliage - Mushroom 4 (white).png',
+    'Foliage - Mushroom 5 (red).png', 'Foliage - Mushroom 5 (white).png',
+    'Foliage - Mushroom 6 (red).png', 'Foliage - Mushroom 6 (white).png',
+    'Foliage - Mushroom 7 (white).png',
+    'Structures - Anvil Rock.png',
+    'Structures - Sitting Stone (mossy).png', 'Structures - Sitting Stone (stone).png',
+    'Structures - Standing Stone (Broken).png', 'Structures - Standing Stone (mossy).png',
+    'Structures - Standing Stone (stone).png',
+    'Vehicles - Shipwreck.png',
+])
+
 // ----------------------------------------------------------------------------
 // Terrain types
 // IDs 0–5: existing hexes2 (pointy-top). NEVER renumber — persisted maps refer
@@ -61,6 +96,8 @@ export enum TerrainTypes {
     WhHillsDesert = 141,
     WhHillsSnowy = 142,
     WhHillWithTreeLush = 143,
+    WhHillsIceSpikes = 144,
+    WhHillsOnyxSpikes = 145,
 
     // mountains
     WhMountainsFoothillsLush = 150,
@@ -86,6 +123,9 @@ export enum TerrainTypes {
     WhForestMixedLush = 173,
     WhForestSparseLush = 174,
     WhForestSparseSnowy = 175,
+    WhForestMushroomRed = 176,
+    WhForestMushroomWhite = 177,
+    WhForestStoneCircleLush = 178,
 
     // water
     WhOceanStill = 180,
@@ -109,6 +149,9 @@ export enum TerrainTypes {
     // ruins
     WhRuinLush = 200,
     WhRuinDesert = 201,
+
+    // landmarks
+    WhLandmarkAnvilRock = 210,
 }
 
 interface VariantPack {
@@ -159,6 +202,8 @@ export const TerrainVariants: Record<keyof typeof TerrainTypes, VariantPack> = {
     WhHillsDesert:      wh(['Hex - Hills (desert) 1.png','Hex - Hills (desert) 1b.png','Hex - Hills (desert) 2.png','Hex - Hills (desert) 2b.png','Hex - Hills (desert) 3.png','Hex - Hills (desert) 3b.png','Hex - Hills (desert) 4.png','Hex - Hills (desert) 4b.png'], 'Hills (desert)', 'Hills'),
     WhHillsSnowy:       wh(['Hex - Hills (snowy) 1.png','Hex - Hills (snowy) 2.png','Hex - Hills (snowy) 3.png','Hex - Hills (snowy) 4.png','Hex - Hills (snowy) 5.png'], 'Hills (snowy)', 'Hills'),
     WhHillWithTreeLush: wh(['Hex - Hill with Tree (lush).png'], 'Hill w/ Tree', 'Hills'),
+    WhHillsIceSpikes:   wh(['Flat Hex - Hills (Ice Spikes) 1.png','Flat Hex - Hills (Ice Spikes) 3.png'], 'Hills (ice spikes)', 'Hills'),
+    WhHillsOnyxSpikes:  wh(['Flat Hex - Hills (Onyx Spikes) 1.png','Flat Hex - Hills (Onyx Spikes) 3.png'], 'Hills (onyx spikes)', 'Hills'),
 
     WhMountainsFoothillsLush:  wh(['Hex - Mountains, foothills (lush).png'], 'Foothills (lush)', 'Mountains'),
     WhMountainsFoothillsRocky: wh(['Hex - Mountains, foothills (rocky).png'], 'Foothills (rocky)', 'Mountains'),
@@ -182,6 +227,9 @@ export const TerrainVariants: Record<keyof typeof TerrainTypes, VariantPack> = {
     WhForestMixedLush:     wh(['Hex - Forest, mixed (lush).png'], 'Mixed (lush)', 'Forest'),
     WhForestSparseLush:    wh(['Hex - Sparse Trees (lush) 1.png','Hex - Sparse Trees (lush) 2.png'], 'Sparse (lush)', 'Forest'),
     WhForestSparseSnowy:   wh(['Hex - Sparse Trees (snowy).png'], 'Sparse (snowy)', 'Forest'),
+    WhForestMushroomRed:     wh(['Flat Hex - Forest, Mushroom (red) 1.png','Flat Hex - Forest, Mushroom (red) 2.png'], 'Mushroom (red)', 'Forest'),
+    WhForestMushroomWhite:   wh(['Flat Hex - Forest, Mushroom (white) 1.png','Flat Hex - Forest, Mushroom (white) 2.png'], 'Mushroom (white)', 'Forest'),
+    WhForestStoneCircleLush: wh(['Flat Hex - Forest, Stone Circle (lush).png'], 'Stone Circle', 'Forest'),
 
     WhOceanStill:     wh(['Hex - Water - Ocean (still water) 1.png','Hex - Water - Ocean (still water) 2.png','Hex - Water - Ocean (still water) 3.png','Hex - Water - Ocean (still water) 4.png','Hex - Water - Ocean (still water) 5.png'], 'Ocean (still)', 'Water'),
     WhOceanWaves:     wh(['Hex - Water - Ocean (waves) 1.png','Hex - Water - Ocean (waves) 2.png'], 'Ocean (waves)', 'Water'),
@@ -202,6 +250,8 @@ export const TerrainVariants: Record<keyof typeof TerrainTypes, VariantPack> = {
 
     WhRuinLush:   wh(['Hex - Ruin (lush).png'], 'Ruin (lush)', 'Ruins'),
     WhRuinDesert: wh(['Hex - Ruin (desert).png'], 'Ruin (desert)', 'Ruins'),
+
+    WhLandmarkAnvilRock: wh(['Flat Hex - Anvil Rock.png'], 'Anvil Rock', 'Landmarks'),
 }
 
 const FALLBACK_TERRAIN: keyof typeof TerrainTypes = 'Blank'
@@ -438,9 +488,9 @@ const WX_EXTRAS: OverlayVariantEntry[] = [
     wxExtra('Buildings - Farmhouse (lush).png'),
     wxExtra('Buildings - Farmland (lush).png'),
     wxExtra('Buildings - Farmland Fence (lush).png'),
-    wxExtra('Buildings - Jetty.png'),
-    wxExtra('Buildings - Jetty (boat).png'),
-    wxExtra('Buildings - Jetty (ship).png'),
+    wxExtra('Buildings - Jetty (right).png'),
+    wxExtra('Buildings - Jetty (boat, right).png'),
+    wxExtra('Buildings - Jetty (ship, right).png'),
     wxExtra('Buildings - Monastery (blue).png'), wxExtra('Buildings - Monastery (red).png'),
     wxExtra('Buildings - Tower (blue).png'), wxExtra('Buildings - Tower (red).png'),
     wxExtra('Buildings - Town (red).png'),
@@ -455,8 +505,8 @@ const WX_EXTRAS: OverlayVariantEntry[] = [
     wxExtra('Structures - Cave (sandstone).png'),
     wxExtra('Structures - Cave (snowy).png'),
     wxExtra('Structures - Cave (stone).png'),
-    wxExtra('Structures - Gate (sandstone).png'),
-    wxExtra('Structures - Gate (stone).png'),
+    wxExtra('Structures - Gate (sandstone, right).png'),
+    wxExtra('Structures - Gate (stone, right).png'),
     wxExtra('Structures - Ruins (stone).png'),
     wxExtra('Structures - Small Ruins (stone).png'),
     wxExtra('Structures - Tent (tarp).png'),
@@ -514,10 +564,11 @@ const WX_EXTRAS: OverlayVariantEntry[] = [
     wxExtra('Icon - Swords.png'), wxExtra('Icon - Tent.png'),
     wxExtra('Icon - Tower.png'), wxExtra('Icon - Tower 2.png'),
     // Append-only: new entries must go at the end so existing maps' POI indices
-    // keep pointing to the same asset.
-    wxExtra('Buildings - Jetty (mirrored).png'),
-    wxExtra('Buildings - Jetty (boat) (mirrored).png'),
-    wxExtra('Buildings - Jetty (ship) (mirrored).png'),
+    // keep pointing to the same asset. These are the left-facing jetty flips;
+    // the palette (groupExtras) displays each beside its right-facing original.
+    wxExtra('Buildings - Jetty (left).png'),
+    wxExtra('Buildings - Jetty (boat, left).png'),
+    wxExtra('Buildings - Jetty (ship, left).png'),
     // Bridges
     wxExtra('Structures - Bridge 1.png'),
     wxExtra('Structures - Bridge 2.png'),
@@ -555,9 +606,48 @@ const WX_EXTRAS: OverlayVariantEntry[] = [
     wxExtra('Title Banner 6 (flex) left.png'),
     wxExtra('Title Banner 6 (flex) mid.png'),
     wxExtra('Title Banner 6 (flex) right.png'),
-    // Mirrored gates so users can flip the arch to suit the path direction.
-    wxExtra('Structures - Gate (sandstone) (mirrored).png'),
-    wxExtra('Structures - Gate (stone) (mirrored).png'),
+    // Left-facing gate flips (paired with the right-facing originals in the palette).
+    wxExtra('Structures - Gate (sandstone, left).png'),
+    wxExtra('Structures - Gate (stone, left).png'),
+    // New worldhex Extras (72-DPI only; see WX_72_ONLY for export fallback).
+    wxExtra('Buildings - Farmland Cowpen (lush).png'),
+    wxExtra('Buildings - Lighthouse (off).png'),
+    wxExtra('Buildings - Lighthouse (on).png'),
+    wxExtra('Buildings - Observatory.png'),
+    wxExtra('Buildings - Orchard.png'),
+    wxExtra('Buildings - Tower Fort.png'),
+    wxExtra('Foliage - Mushroom 1 (red).png'),
+    wxExtra('Foliage - Mushroom 1 (white).png'),
+    wxExtra('Foliage - Mushroom 2 (red).png'),
+    wxExtra('Foliage - Mushroom 2 (white).png'),
+    wxExtra('Foliage - Mushroom 3 (red).png'),
+    wxExtra('Foliage - Mushroom 3 (white).png'),
+    wxExtra('Foliage - Mushroom 4 (red).png'),
+    wxExtra('Foliage - Mushroom 4 (white).png'),
+    wxExtra('Foliage - Mushroom 5 (red).png'),
+    wxExtra('Foliage - Mushroom 5 (white).png'),
+    wxExtra('Foliage - Mushroom 6 (red).png'),
+    wxExtra('Foliage - Mushroom 6 (white).png'),
+    wxExtra('Foliage - Mushroom 7 (white).png'),
+    wxExtra('Structures - Anvil Rock.png'),
+    wxExtra('Structures - Sitting Stone (mossy).png'),
+    wxExtra('Structures - Sitting Stone (stone).png'),
+    wxExtra('Structures - Standing Stone (Broken).png'),
+    wxExtra('Structures - Standing Stone (mossy).png'),
+    wxExtra('Structures - Standing Stone (stone).png'),
+    wxExtra('Vehicles - Shipwreck.png'),
+    // Wall segments — hex-spanning structures placed as free stamps so they
+    // overlay terrain (transparent base) instead of replacing it. Sequential
+    // 1–9; adjacent numbers (1/2, 5/6, 7/8) are left/right mirror pairs.
+    wxExtra('Wall 1.png'),
+    wxExtra('Wall 2.png'),
+    wxExtra('Wall 3.png'),
+    wxExtra('Wall 4.png'),
+    wxExtra('Wall 5.png'),
+    wxExtra('Wall 6.png'),
+    wxExtra('Wall 7.png'),
+    wxExtra('Wall 8.png'),
+    wxExtra('Wall 9.png'),
 ]
 
 export const OverlayVariantsByPack: Record<Pack, Partial<Record<OverlayCategory, OverlayVariantList>>> = {
@@ -672,9 +762,11 @@ const extraGroupFor = (file: string): string => {
     if (file.startsWith('Foliage - Tree')) return 'Trees'
     if (file.startsWith('Foliage - Bush')) return 'Bushes'
     if (file.startsWith('Foliage - Grass Patch')) return 'Grass'
+    if (file.startsWith('Foliage - Mushroom')) return 'Mushrooms'
     if (file.startsWith('Hill ')) return 'Hills'
     if (file.startsWith('Buildings - ')) return 'Buildings'
     if (file.startsWith('Structures - ')) return 'Structures'
+    if (/^Wall \d/.test(file)) return 'Walls'
     if (file.startsWith('Vehicles - ') || file.startsWith('Vehicle - ')) return 'Vehicles'
     if (file.startsWith('Clouds ')) return 'Atmosphere'
     if (file === 'Lake.png' || file === 'Oasis.png') return 'Atmosphere'
@@ -687,6 +779,29 @@ const extraGroupFor = (file: string): string => {
     if (file.startsWith("Pins - You're Here")) return '"You\'re Here"'
     if (file.startsWith('Icon - ')) return 'Icons'
     return 'Other'
+}
+
+// Directional flips ("(left)"/"(right)" partners) live at append-only positions
+// far from their originals. For display only, pull each flip up to sit right
+// after its partner so the pair shows together — stored indices are untouched.
+type ExtraEntry = { index: number; file: string }
+const flipDirection = (f: string): 'left' | 'right' | null =>
+    /\bleft\b/i.test(f) ? 'left' : /\bright\b/i.test(f) ? 'right' : null
+const flipBaseKey = (f: string): string => f.replace(/[,(]\s*(left|right)\)?/i, '')
+const pairDirectionalFlips = (entries: ExtraEntry[]): ExtraEntry[] => {
+    const out: ExtraEntry[] = []
+    const used = new Set<number>()
+    for (const e of entries) {
+        if (used.has(e.index)) continue
+        out.push(e); used.add(e.index)
+        const dir = flipDirection(e.file)
+        if (!dir) continue
+        const key = flipBaseKey(e.file)
+        const partner = entries.find(o =>
+            !used.has(o.index) && flipBaseKey(o.file) === key && flipDirection(o.file) === (dir === 'left' ? 'right' : 'left'))
+        if (partner) { out.push(partner); used.add(partner.index) }
+    }
+    return out
 }
 
 export const groupExtras = (pack: Pack): ExtraGroup[] => {
@@ -703,7 +818,7 @@ export const groupExtras = (pack: Pack): ExtraGroup[] => {
         }
         map.get(group)!.entries.push({ index, file })
     })
-    return order.map(g => map.get(g)!)
+    return order.map(g => ({ group: g, entries: pairDirectionalFlips(map.get(g)!.entries) }))
 }
 
 // Helper function to get terrain key name
@@ -716,7 +831,10 @@ export const getTerrainKeyByIndex = (index: number): keyof typeof TerrainTypes =
 export const getTerrainExportUrl = (terrainType: TerrainTypes, variantIndex: number): string => {
     const v = resolveVariantPack(terrainType)
     if (v.pack !== 'worldhex') return getTerrainVariantByIndex(terrainType, variantIndex)
-    const file = v.files[wrapIndex(variantIndex, v.files.length)]!.replace(/\.png$/i, '.webp')
+    const png = v.files[wrapIndex(variantIndex, v.files.length)]!
+    // New hexes have no 300-DPI WebP twin yet — export the 72-DPI PNG.
+    if (WX_72_ONLY.has(png)) return getTerrainVariantByIndex(terrainType, variantIndex)
+    const file = png.replace(/\.png$/i, '.webp')
     return buildAssetUrl('worldhex', WORLDHEX_ROOT_300, file)
 }
 
@@ -725,6 +843,8 @@ export const getOverlayExportUrl = (category: OverlayCategory, index: number, pa
     const v = resolveOverlayList(pack, category)
     if (!v || !v.files.length) return ''
     const { folder, file } = resolveOverlayEntry(v, index)
+    // New 72-DPI-only Extras have no 300-DPI webp twin; export the 72-DPI PNG.
+    if (WX_72_ONLY.has(file)) return buildAssetUrl('worldhex', folder, file)
     const webp = file.replace(/\.png$/i, '.webp')
     const folder300 = folder.replace(WORLDHEX_ROOT_72, WORLDHEX_ROOT_300)
     return buildAssetUrl('worldhex', folder300, webp)
