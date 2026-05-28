@@ -19,7 +19,7 @@ const ORIENTATION_OPTIONS = [Orientation.FLAT, Orientation.POINTY]
 
 const state = reactive({
   mapName: undefined,
-  hexOrientation: Orientation.POINTY,
+  hexOrientation: Orientation.FLAT,
   sizeW: 10,
   sizeH: 10,
 })
