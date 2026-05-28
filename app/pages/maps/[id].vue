@@ -10,7 +10,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { get, remove, update, exportToJson } = useMaps()
+const { get, remove, update, exportToJson, getSaveStatus } = useMaps()
 
 const mapId = route.params.id as string
 const map = computed(() => get(mapId))
@@ -282,6 +282,7 @@ const actionMenuItems = computed<DropdownMenuItem[][]>(() => [
                         <span class="hidden sm:inline">Back</span>
                     </UButton>
                     <h1 class="title">{{ map.name }}</h1>
+                    <SaveStatus v-if="map.source === 'cloud'" :status="getSaveStatus(map.id)" />
                 </div>
                 <div class="right">
                     <UButton

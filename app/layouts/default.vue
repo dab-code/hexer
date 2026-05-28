@@ -5,6 +5,7 @@
             HEXER
         </template>
         <template #right>
+          <AuthMenu />
           <UColorModeButton variant="ghost" />
         </template>
     </UHeader>

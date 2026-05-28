@@ -88,6 +88,23 @@ export type Note = z.infer<typeof noteSchema>
 export type ManualMap = z.infer<typeof manualMapSchema>
 export type SavedMap = ManualMap
 
+// On-the-wire shape of an encrypted maps row in Supabase. ct = ciphertext,
+// iv = initialization vector (12 bytes each). Both are base64 strings.
+export interface MapEnvelope {
+  id: string
+  name_ct: string
+  name_iv: string
+  data_ct: string
+  data_iv: string
+  created_at: string
+  updated_at: string
+}
+
+// A map as it appears in the merged list view returned by useMaps().list —
+// SavedMap plus a discriminator telling the UI where the map lives. 'local'
+// = in localStorage (anonymous or not-yet-uploaded), 'cloud' = in Supabase.
+export type MapListEntry = SavedMap & { source: 'local' | 'cloud' }
+
 // One entry point for "is this a valid SavedMap?", used by both storage read
 // and JSON import. Unknown fields are silently stripped by the schema.
 export function parseSavedMap(raw: unknown): SavedMap | null {

@@ -42,7 +42,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       overrides: {},
     }
 
-    add(map)
+    await add(map)
 
     toast.add({
       title: 'Manual world created',
