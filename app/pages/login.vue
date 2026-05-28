@@ -84,6 +84,8 @@ async function onSubmit() {
     const dek = await unwrapKey(ct, iv, kek)
 
     await setDek(dek)
+    // eslint-disable-next-line no-console
+    console.log('[login] setDek done', { userId })
 
     const next = typeof route.query.next === 'string' ? route.query.next : '/maps'
     await navigateTo(next)
