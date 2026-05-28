@@ -232,12 +232,13 @@ const edgeCornerLookup = new Map<string, { a: { x: number; y: number }; b: { x: 
 // River-band stroke between hexes. Sized in SVG user-space; hex "dimensions" is
 // 30 so a 4-unit core leaves the baked hex outline showing on either side. The
 // dark border matches the inked look of the in-hex river tiles.
+const ASSET_BASE_URL = useRuntimeConfig().public.assetBaseUrl as string
 // Note pins use the worldhex "large white pin" extra asset so they match the map's
 // art style. The large variant carries enough native pixels (35×48) to stay crisp
 // at the on-screen render size; the small pin looked blurry scaled up. URL is
 // encoded per path segment to match the export DPI-upgrade pattern (so exports
 // swap in the crisp 300-DPI WebP automatically).
-const NOTE_PIN_URL = '/media/worldhex/Assets%20-%2072%20DPI/Extras/Pins%20-%20Pin%2C%20white%20(large).png'
+const NOTE_PIN_URL = `${ASSET_BASE_URL}/worldhex/Assets%20-%2072%20DPI/Extras/Pins%20-%20Pin%2C%20white%20(large).png`
 const NOTE_PIN_ASPECT = 35 / 48
 
 const EDGE_RIVER_COLOR = '#517184'
@@ -1407,13 +1408,14 @@ async function getSvgString(
   // counterparts so the saved PNG is crisp at ~150 effective DPI.
   const upgradeUrlForExport = (href: string): string => {
     if (activeAdapter.value.id !== 'worldhex') return href
-    if (!href.startsWith('/media/worldhex/')) return href
+    const worldhexPrefix = `${ASSET_BASE_URL}/worldhex/`
+    if (!href.startsWith(worldhexPrefix)) return href
     // 72-DPI-only assets (walls, tower fort, etc.) have no 300-DPI WebP twin;
     // upgrading would point at a missing file and drop them from the export.
     const file = decodeURIComponent(href.split('/').pop() ?? '')
     if (isWorldhex72Only(file)) return href
     return href
-      .replace('/media/worldhex/Assets%20-%2072%20DPI', '/media/worldhex/Assets%20-%20300%20DPI')
+      .replace(`${worldhexPrefix}Assets%20-%2072%20DPI`, `${worldhexPrefix}Assets%20-%20300%20DPI`)
       .replace(/\.png$/i, '.webp')
   }
 

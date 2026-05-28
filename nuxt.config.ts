@@ -19,5 +19,13 @@ export default defineNuxtConfig({
     '@nuxt/scripts'
   ],
 
+  runtimeConfig: {
+    public: {
+      // Public Supabase Storage bucket holding hex/POI artwork. Override with
+      // NUXT_PUBLIC_ASSET_BASE_URL to point at a staging bucket.
+      assetBaseUrl: 'https://qtknfcplbxgtmrzxocfu.supabase.co/storage/v1/object/public/assets',
+    },
+  },
+
   css: ['~/assets/css/main.css']
 })

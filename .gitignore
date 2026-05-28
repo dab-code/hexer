@@ -47,6 +47,10 @@ pnpm-lock.yaml
 /*.png
 /.playwright-mcp/
 
+# Hex/POI artwork lives in a public Supabase Storage bucket (see
+# runtimeConfig.public.assetBaseUrl). Keep the local mirror untracked.
+/public/media/
+
 # OS generated files
 Thumbs.db
 ehthumbs.db

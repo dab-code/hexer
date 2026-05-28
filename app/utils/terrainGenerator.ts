@@ -267,15 +267,20 @@ function resolveVariantPack(terrainType: TerrainTypes): VariantPack {
     return TerrainVariants[FALLBACK_TERRAIN]
 }
 
+// Assets live in a public Supabase Storage bucket; the base URL is set in
+// nuxt.config.ts and overridable via NUXT_PUBLIC_ASSET_BASE_URL.
+const assetBaseUrl = (): string => useRuntimeConfig().public.assetBaseUrl as string
+
 const buildAssetUrl = (pack: Pack, folder: string, file: string): string => {
+    const base = assetBaseUrl()
     if (pack === 'worldhex') {
         // folder already includes the WORLDHEX_ROOT prefix
         // (e.g. "worldhex/Assets - 72 DPI" or that + "/Extras").
-        return `/media/${encodeSegments(folder)}/${encodeURIComponent(file)}`
+        return `${base}/${encodeSegments(folder)}/${encodeURIComponent(file)}`
     }
     return folder
-        ? `/media/${pack}/${encodeURIComponent(folder)}/${encodeURIComponent(file)}`
-        : `/media/${pack}/${encodeURIComponent(file)}`
+        ? `${base}/${pack}/${encodeURIComponent(folder)}/${encodeURIComponent(file)}`
+        : `${base}/${pack}/${encodeURIComponent(file)}`
 }
 
 // Positive modulo: wrap any integer (incl. negative) into [0, length).
