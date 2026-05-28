@@ -26,14 +26,16 @@ const menuItems = computed<DropdownMenuItem[][]>(() => [
         <UButton
           icon="i-heroicons-user-circle"
           variant="ghost"
-          :label="user.email ?? 'Account'"
+          size="sm"
           trailing-icon="i-heroicons-chevron-down"
-        />
+        >
+          <span class="hidden sm:inline">{{ user.email ?? 'Account' }}</span>
+        </UButton>
       </UDropdownMenu>
     </template>
     <template v-else>
-      <UButton to="/login" variant="ghost">Sign in</UButton>
-      <UButton to="/signup">Sign up</UButton>
+      <UButton to="/login" variant="ghost" size="sm">Sign in</UButton>
+      <UButton to="/signup" size="sm">Sign up</UButton>
     </template>
   </div>
 </template>

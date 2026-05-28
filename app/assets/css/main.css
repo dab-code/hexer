@@ -2,6 +2,85 @@
 @import "@nuxt/ui";
 
 :root {
-  --ui-header-height: 40px;
+  --ui-header-height: 56px;
   --ui-container: 100%;
+
+  /* Neutral palette is identical across light and dark — slate ramp anchored
+     on the brand's #222831 / #393E46 / #EEEEEE swatches. */
+  --ui-color-neutral-50:  #F7F7F8;
+  --ui-color-neutral-100: #EEEEEE;
+  --ui-color-neutral-200: #D9DBE0;
+  --ui-color-neutral-300: #B8BBC2;
+  --ui-color-neutral-400: #888D97;
+  --ui-color-neutral-500: #5A5F6A;
+  --ui-color-neutral-600: #454A54;
+  --ui-color-neutral-700: #393E46;
+  --ui-color-neutral-800: #2A2F37;
+  --ui-color-neutral-900: #222831;
+  --ui-color-neutral-950: #161A21;
+}
+
+.light,
+:root {
+  --ui-bg:              #EEEEEE;
+  --ui-bg-muted:        #E4E4E6;
+  --ui-bg-elevated:     #FFFFFF;
+  --ui-bg-accented:     #D9DBE0;
+  --ui-bg-inverted:     #222831;
+  --ui-border:          #D9DBE0;
+  --ui-border-muted:    #E4E4E6;
+  --ui-border-accented: #B8BBC2;
+  --ui-border-inverted: #222831;
+  --ui-text-dimmed:     #888D97;
+  --ui-text-muted:      #5A5F6A;
+  --ui-text-toned:      #454A54;
+  --ui-text:            #393E46;
+  --ui-text-highlighted:#222831;
+  --ui-text-inverted:   #FFFFFF;
+
+  /* Light-mode accent: deep teal (AAA contrast vs #EEEEEE). */
+  --ui-color-primary-50:  #F0F9FB;
+  --ui-color-primary-100: #DBF0F3;
+  --ui-color-primary-200: #B2DBE3;
+  --ui-color-primary-300: #80C0CE;
+  --ui-color-primary-400: #2A8294;
+  --ui-color-primary-500: #0F4C5C;
+  --ui-color-primary-600: #0A3A47;
+  --ui-color-primary-700: #072B36;
+  --ui-color-primary-800: #051F27;
+  --ui-color-primary-900: #031318;
+  --ui-color-primary-950: #01080A;
+  --ui-primary:           #0F4C5C;
+}
+
+.dark {
+  --ui-bg:              #222831;
+  --ui-bg-muted:        #2A2F37;
+  --ui-bg-elevated:     #393E46;
+  --ui-bg-accented:     #454A54;
+  --ui-bg-inverted:     #EEEEEE;
+  --ui-border:          #393E46;
+  --ui-border-muted:    #2A2F37;
+  --ui-border-accented: #5A5F6A;
+  --ui-border-inverted: #EEEEEE;
+  --ui-text-dimmed:     #5A5F6A;
+  --ui-text-muted:      #888D97;
+  --ui-text-toned:      #B8BBC2;
+  --ui-text:            #D9DBE0;
+  --ui-text-highlighted:#EEEEEE;
+  --ui-text-inverted:   #222831;
+
+  /* Dark-mode accent: bright yellow on dark slate. */
+  --ui-color-primary-50:  #FFFBEC;
+  --ui-color-primary-100: #FFF6D4;
+  --ui-color-primary-200: #FFEBA8;
+  --ui-color-primary-300: #FFE08A;
+  --ui-color-primary-400: #FFD369;
+  --ui-color-primary-500: #FFD369;
+  --ui-color-primary-600: #E5B850;
+  --ui-color-primary-700: #B08420;
+  --ui-color-primary-800: #846213;
+  --ui-color-primary-900: #5A4209;
+  --ui-color-primary-950: #2E2104;
+  --ui-primary:           #FFD369;
 }

@@ -5,8 +5,10 @@
             HEXER
         </template>
         <template #right>
-          <AuthMenu />
-          <UColorModeButton variant="ghost" />
+          <div class="flex items-center gap-1 sm:gap-2 pr-2 sm:pr-4">
+            <AuthMenu />
+            <UColorModeButton variant="ghost" />
+          </div>
         </template>
     </UHeader>
 
