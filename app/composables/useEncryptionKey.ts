@@ -25,8 +25,6 @@ const RECOVERY_CODE_SESSION_KEY = 'hexer:signup-recovery-code'
 const DEK_SESSION_KEY = 'hexer:dek'
 
 export const useEncryptionKey = createSharedComposable(() => {
-  // eslint-disable-next-line no-console
-  console.log('[useEncryptionKey] instance created')
   // shallowRef so Vue's reactivity proxy doesn't wrap the opaque CryptoKey.
   const dek = shallowRef<CryptoKey | null>(null)
   const isLoaded = computed(() => dek.value !== null)

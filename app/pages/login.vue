@@ -4,11 +4,15 @@ import { base64ToBytes, deriveKek, unwrapKey } from '~/utils/crypto'
 useHead({ title: 'Log in' })
 
 const supabase = useSupabaseClient()
+const user = useSupabaseUser()
 const { setDek, createAndStoreKeys } = useEncryptionKey()
 const toast = useToast()
 const route = useRoute()
 
-const email = ref('')
+// Prefill from an existing session: in the "session outlived the DEK" unlock
+// flow the user is already authenticated and just needs to re-enter their
+// password to rebuild the key. For a fresh login this is simply empty.
+const email = ref(user.value?.email ?? '')
 const password = ref('')
 const submitting = ref(false)
 
@@ -84,8 +88,6 @@ async function onSubmit() {
     const dek = await unwrapKey(ct, iv, kek)
 
     await setDek(dek)
-    // eslint-disable-next-line no-console
-    console.log('[login] setDek done', { userId })
 
     const next = typeof route.query.next === 'string' ? route.query.next : '/maps'
     await navigateTo(next)

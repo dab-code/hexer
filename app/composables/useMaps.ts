@@ -69,16 +69,12 @@ export const useMaps = createSharedComposable(() => {
   }
 
   async function refreshCloud(): Promise<void> {
-    // eslint-disable-next-line no-console
-    console.log('[useMaps] refreshCloud', { hasUser: !!user.value, hasDek: !!dek.value })
     if (!user.value || !dek.value) {
       cloudMaps.value = []
       cloudCache.value = []
       return
     }
     const token = await getAccessToken()
-    // eslint-disable-next-line no-console
-    console.log('[useMaps] refreshCloud token', { hasToken: !!token })
     if (!token) return
     try {
       const fetched = await fetchAllCloudMaps(token, dek.value)
