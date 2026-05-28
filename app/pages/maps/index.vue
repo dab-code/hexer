@@ -116,7 +116,7 @@ async function onUpload(id: string, name: string) {
             <UCard v-for="map in list" :key="map.id" class="hover:shadow-lg transition-shadow">
                 <template #header>
                     <div class="flex justify-between items-start gap-2">
-                        <ULink :to="`/maps/${map.id}`" class="min-w-0">
+                        <ULink :to="`/maps/${map.id}`" class="min-w-0 text-(--ui-text-highlighted) hover:text-(--ui-primary) transition-colors">
                             <h3 class="text-lg font-semibold truncate">{{ map.name }}</h3>
                         </ULink>
                         <UButton
@@ -155,8 +155,15 @@ async function onUpload(id: string, name: string) {
                 <div class="text-xs text-gray-400 mt-1">
                     {{ map.sizeW }} × {{ map.sizeH }}
                 </div>
-                <div class="mt-2 flex items-center justify-between gap-2">
-                    <ULink :to="`/maps/${map.id}`">Open</ULink>
+                <div class="mt-3 flex items-center justify-between gap-2">
+                    <UButton
+                        :to="`/maps/${map.id}`"
+                        icon="i-heroicons-arrow-right"
+                        trailing
+                        size="sm"
+                    >
+                        Open
+                    </UButton>
                     <UButton
                         v-if="map.source === 'local' && user"
                         icon="i-heroicons-cloud-arrow-up"
